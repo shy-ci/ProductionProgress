@@ -6,5 +6,5 @@
   "UniqueID": "MossHarbor.ProductionProgress",
   "EntryDll": "ProductionProgress.dll",
   "MinimumApiVersion": "4.0.8",
-  "UpdateKeys": []
+  "UpdateKeys": ["Nexus:54196"]
 }
