@@ -1,8 +1,8 @@
 {
-  "Name": "Progress",
+  "Name": "Production Progress",
   "Author": "MossHarbor",
   "Version": "0.1.6",
-  "Description": "A progress tab in the game menu, powered by state-change notifications.",
+  "Description": "Track crop growth, machine production, tapping and aging progress in one menu tab, with completion dates and times.",
   "UniqueID": "MossHarbor.ProductionProgress",
   "EntryDll": "ProductionProgress.dll",
   "MinimumApiVersion": "4.0.8",

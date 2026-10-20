@@ -4,7 +4,7 @@
   "processing": "制作中", "collecting": "采集中", "normal": "普通", "silver": "银星",
   "gold": "金星", "iridium": "铱星", "empty": "暂无进度",
   "initializing": "正在整理进度...", "synchronizing": "正在等待主机同步...",
-  "host-required": "联机主机需要安装进度模组",
+  "host-required": "联机主机需要安装 Production Progress 模组",
   "eta-unknown": "时间未知", "completion-date-unknown": "日期未知",
   "growth-complete": "生长完成", "processing-complete": "制作完成", "collection-complete": "采集完成",
   "mature": "成熟", "progress-target": "{{percent}}%{{target}}",

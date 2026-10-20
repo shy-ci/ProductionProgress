@@ -4,7 +4,7 @@
   "processing": "Processing", "collecting": "Collecting", "normal": "Normal", "silver": "Silver",
   "gold": "Gold", "iridium": "Iridium", "empty": "No progress to display.",
   "initializing": "Reading progress...", "synchronizing": "Waiting for the host...",
-  "host-required": "The host needs Progress installed.",
+  "host-required": "The host needs Production Progress installed.",
   "eta-unknown": "Time unknown", "completion-date-unknown": "Date unknown",
   "growth-complete": "Growth complete", "processing-complete": "Processing complete", "collection-complete": "Collection complete",
   "mature": "Mature", "progress-target": "{{percent}}% {{target}}",
