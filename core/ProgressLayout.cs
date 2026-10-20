@@ -2,10 +2,24 @@ namespace MossHarbor.ProductionProgress.Core;
 
 public sealed record ProgressLayout(int Left, int Width, int ListTop, int RowHeight,
     int NameWidth, int ProgressLeft, int ProgressWidth, int TimeLeft, int TimeWidth,
-    int BarLeft, int BarWidth, int NameOffset, int BarOffset, int DetailOffset, int VisibleRows)
+    int BarLeft, int BarWidth, int NameOffset, int BarOffset, int DetailOffset, int ListHeight)
 {
     public const int BarHeight = 14;
     public const int ColumnGap = 20;
+    // SDV 1.6.8 SocialPage.CreateComponents: down arrow is at bottom - 64,
+    // with height 48, leaving 16 UI pixels. This is independent of side padding.
+    public const int BottomInset = 16;
+    public int VisibleRows => ListHeight / RowHeight;
+
+    public (int FirstIndex, int Count, int Offset) VisibleRange(int totalRows, int scrollOffset)
+    {
+        if (VisibleRows == 0 || totalRows <= 0) return (0, 0, 0);
+        int scroll = Math.Clamp(scrollOffset, 0, Math.Max(0, totalRows * RowHeight - ListHeight));
+        int first = scroll / RowHeight;
+        int offset = scroll % RowHeight;
+        int count = Math.Min(totalRows - first, (ListHeight + offset + RowHeight - 1) / RowHeight);
+        return (first, count, offset);
+    }
 
     public static ProgressLayout Create(int menuX, int menuY, int menuWidth, int menuHeight,
         int tabsBottom, int clearTop, int sideInset, int textHeight, int detailHeight)
@@ -23,8 +37,8 @@ public sealed record ProgressLayout(int Left, int Width, int ListTop, int RowHei
         int timeLeft = left + width - timeWidth;
         int barLeft = left;
         int barWidth = width;
-        int rows = width < 240 ? 0 : Math.Max(0, (menuY + menuHeight - inset - listTop) / rowHeight);
+        int listHeight = width < 240 ? 0 : Math.Max(0, menuY + menuHeight - BottomInset - listTop);
         return new(left, width, listTop, rowHeight, nameWidth, barLeft, barWidth,
-            timeLeft, timeWidth, barLeft, barWidth, nameOffset, barOffset, detailOffset, rows);
+            timeLeft, timeWidth, barLeft, barWidth, nameOffset, barOffset, detailOffset, listHeight);
     }
 }

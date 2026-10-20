@@ -41,7 +41,61 @@ public sealed class ProductionFeedbackTests
         Assert.True(layout.RowHeight >= layout.DetailOffset + detailHeight);
         Assert.True(layout.NameOffset + textHeight <= layout.RowHeight);
         Assert.True(layout.VisibleRows >= 4);
-        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - contentInset);
+        Assert.Equal(y + height - 16, layout.ListTop + layout.ListHeight);
+        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - 16);
+    }
+
+    [Fact]
+    public void SidePaddingCannotChangeTheBottomBoundaryOrScrollbarHeight()
+    {
+        var narrowPadding = ProgressLayout.Create(100, 40, 880, 680, 120, 96, 40, 32, 28);
+        var widePadding = ProgressLayout.Create(100, 40, 880, 680, 120, 96, 80, 32, 28);
+        Assert.NotEqual(narrowPadding.Left, widePadding.Left);
+        Assert.Equal(narrowPadding.ListHeight, widePadding.ListHeight);
+        Assert.Equal(704, widePadding.ListTop + widePadding.ListHeight);
+        var scrollbar = ScrollMetrics.Create(widePadding.ListTop, widePadding.ListHeight, 20 * widePadding.RowHeight, 0);
+        // Top arrow, gap, runner, gap, bottom arrow reach the same native bottom inset.
+        Assert.Equal(704, scrollbar.RunnerTop + scrollbar.RunnerHeight + ScrollMetrics.Gap + ScrollMetrics.ArrowHeight);
+    }
+
+    [Fact]
+    public void PartialBottomRowUsesSpaceLeftAfterTheLastWholeRow()
+    {
+        var layout = ProgressLayout.Create(100, 40, 880, 680, 120, 96, 56, 32, 28);
+        var range = layout.VisibleRange(20, 0);
+        Assert.Equal(0, range.FirstIndex);
+        Assert.Equal(0, range.Offset);
+        Assert.Equal(7, range.Count); // 568px viewport, 90px rows: six whole rows plus 28px.
+        Assert.Equal(28, layout.ListHeight - (range.Count - 1) * layout.RowHeight);
+    }
+
+    [Fact]
+    public void PixelScrollingIncludesPartialRowsAtBothEdgesAndStopsAtTheLastRow()
+    {
+        var layout = ProgressLayout.Create(100, 40, 880, 680, 120, 96, 56, 32, 28);
+        var middle = layout.VisibleRange(20, 45);
+        Assert.Equal((0, 7, 45), middle);
+        Assert.True(middle.Count * layout.RowHeight - middle.Offset >= layout.ListHeight);
+        var end = layout.VisibleRange(20, int.MaxValue);
+        Assert.Equal(20, end.FirstIndex + end.Count);
+        Assert.Equal(layout.ListHeight, end.Count * layout.RowHeight - end.Offset);
+        Assert.Equal(0, layout.VisibleRange(20, -100).Offset);
+    }
+
+    [Theory]
+    [InlineData(24, 21, 680)]
+    [InlineData(32, 28, 680)]
+    [InlineData(44, 38, 500)]
+    public void ResizedAndTranslatedListsKeepTheLastRowAtTheViewportBottom(int textHeight, int detailHeight, int height)
+    {
+        var layout = ProgressLayout.Create(100, 40, 880, height, 120, 96, 56, textHeight, detailHeight);
+        var range = layout.VisibleRange(100, int.MaxValue);
+        Assert.Equal(height + 40 - 16, layout.ListTop + layout.ListHeight);
+        Assert.Equal(100, range.FirstIndex + range.Count);
+        Assert.Equal(layout.ListHeight, range.Count * layout.RowHeight - range.Offset);
+        var reduced = layout.VisibleRange(2, int.MaxValue);
+        Assert.Equal((0, 2, 0), reduced);
+        Assert.Equal((0, 0, 0), layout.VisibleRange(0, 0));
     }
 
     [Fact]

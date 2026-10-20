@@ -6,7 +6,7 @@
     <LangVersion>latest</LangVersion>
     <AssemblyName>ProductionProgress</AssemblyName>
     <RootNamespace>MossHarbor.ProductionProgress</RootNamespace>
-    <Version>0.1.9</Version>
+    <Version>0.1.10</Version>
     <GamePath Condition="'$(GamePath)' == ''">$(STARDEW_GAME_PATH)</GamePath>
     <SmapiPath Condition="'$(SmapiPath)' == ''">$(GamePath)</SmapiPath>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>

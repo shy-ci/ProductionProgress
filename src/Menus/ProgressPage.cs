@@ -23,7 +23,7 @@ internal sealed class ProgressPage : IClickableMenu
     private List<ProgressRow> ordered = new();
     private long revision = -1, clock = -1;
     private string language = "";
-    private int scroll, ticks;
+    private int scroll, lineOffset, ticks;
     private bool draggingScroll;
     private int scrollGrabOffset, scrollPointerY;
     private const float DetailScale = 0.85f;
@@ -60,20 +60,21 @@ internal sealed class ProgressPage : IClickableMenu
         (int)Math.Ceiling(Game1.smallFont.MeasureString(text.Get("growing") + "Ag").Y * DetailScale));
     public void Scroll(int delta)
     {
-        SetScroll(scroll + delta);
+        SetScroll(scroll + delta * layout.RowHeight);
     }
 
-    private void SetScroll(int index)
+    private void SetScroll(int offset)
     {
-        int next = Math.Clamp(index, 0, Math.Max(0, ordered.Count - VisibleRows));
+        int next = Math.Clamp(offset, 0, Scrollbar.MaximumOffset);
         if (next != scroll) { scroll = next; clock = -1; Refresh(); }
     }
 
     public override void receiveScrollWheelAction(int direction) => Scroll(direction > 0 ? -2 : 2);
 
     private int ScrollbarX => menu.xPositionOnScreen + menu.width + 16;
-    private int ScrollbarHeight => VisibleRows * layout.RowHeight;
-    private ScrollMetrics Scrollbar => ScrollMetrics.Create(layout.ListTop, ScrollbarHeight, ordered.Count, VisibleRows, scroll);
+    private int ScrollbarHeight => layout.ListHeight;
+    private ScrollMetrics Scrollbar => ScrollMetrics.Create(layout.ListTop, ScrollbarHeight, ordered.Count * layout.RowHeight, scroll);
+    private Rectangle ListBounds => new(menu.xPositionOnScreen, layout.ListTop, menu.width, layout.ListHeight);
 
     public override void receiveLeftClick(int x, int y, bool playSound = true)
     {
@@ -91,7 +92,7 @@ internal sealed class ProgressPage : IClickableMenu
             bool onThumb = y >= metrics.ThumbTop && y < metrics.ThumbTop + ScrollMetrics.ThumbHeight;
             scrollGrabOffset = onThumb ? y - metrics.ThumbTop : ScrollMetrics.ThumbHeight / 2;
             scrollPointerY = y;
-            if (!onThumb) SetScroll(metrics.IndexAt(y, scrollGrabOffset));
+            if (!onThumb) SetScroll(metrics.OffsetAt(y, scrollGrabOffset));
         }
         if (playSound && scroll != before) Game1.playSound("shwip");
     }
@@ -103,7 +104,7 @@ internal sealed class ProgressPage : IClickableMenu
         if (getStatus() != null || !metrics.Visible) { draggingScroll = false; return; }
         if (y == scrollPointerY) return;
         scrollPointerY = y;
-        SetScroll(metrics.IndexAt(y, scrollGrabOffset));
+        SetScroll(metrics.OffsetAt(y, scrollGrabOffset));
     }
 
     public override void releaseLeftClick(int x, int y) => draggingScroll = false;
@@ -135,12 +136,14 @@ internal sealed class ProgressPage : IClickableMenu
             // Sorting is triggered by a changed batch, never by the ten-minute clock alone.
             ordered = getRows().OrderBy(r => r.State).ThenBy(r => r.Kind).ThenBy(r => r.Name, StringComparer.CurrentCulture)
                 .ThenBy(r => r.Location, StringComparer.Ordinal).ThenBy(r => r.Id).ToList();
-            scroll = Math.Clamp(scroll, 0, Math.Max(0, ordered.Count - VisibleRows));
+            scroll = Math.Clamp(scroll, 0, Scrollbar.MaximumOffset);
         }
         if (!Scrollbar.Visible) draggingScroll = false;
         language = currentLanguage; revision = currentRevision; clock = now;
-        // Only visible rows need localized item creation, percentage text and layout.
-        lines = ordered.Skip(scroll).Take(VisibleRows).Select(row =>
+        // Include partially visible rows at both edges; hidden rows still aren't formatted.
+        var range = layout.VisibleRange(ordered.Count, scroll);
+        lineOffset = range.Offset;
+        lines = ordered.Skip(range.FirstIndex).Take(range.Count).Select(row =>
         {
             if (!itemNames.TryGetValue(row.Id, out string? name))
             {
@@ -216,30 +219,7 @@ internal sealed class ProgressPage : IClickableMenu
             b.DrawString(Game1.smallFont, Fit(status ?? text.Get("empty"), layout.Width), new Vector2(left, top + layout.NameOffset), Game1.textColor);
             return;
         }
-        // Match SocialPage: keep the native partition and its padding behind row content.
-        for (int i = 0; i < lines.Count; i++)
-            drawHorizontalPartition(b, top + (i + 1) * layout.RowHeight - 36, small: true);
-        for (int i = 0; i < lines.Count; i++)
-        {
-            Line line = lines[i]; int y = top + i * layout.RowHeight;
-            b.DrawString(Game1.smallFont, line.Name, new Vector2(left, y + layout.NameOffset), Game1.textColor);
-            float rightWidth = Game1.smallFont.MeasureString(line.Right).X * DetailScale;
-            DrawDetail(b, line.Right, layout.ProgressLeft + layout.ProgressWidth - rightWidth, y + layout.DetailOffset,
-                Game1.textColor);
-            var rect = new Rectangle(layout.BarLeft, y + layout.BarOffset, layout.BarWidth, ProgressLayout.BarHeight);
-            DrawPixelBar(b, rect, TrackSwatches);
-            if (line.Fraction is double amount && amount > 0)
-                DrawPixelBar(b, new Rectangle(rect.X, rect.Y, (int)(rect.Width * amount), rect.Height),
-                    FillSwatches);
-            if (line.Row.State is ProductionState.Working or ProductionState.Ready)
-            {
-                string from = Fit(line.From, (layout.ProgressWidth - rightWidth - 12) / DetailScale);
-                DrawDetail(b, from, layout.ProgressLeft, y + layout.DetailOffset, Game1.textColor);
-                string to = Fit(line.To, layout.TimeWidth);
-                b.DrawString(Game1.smallFont, to, new Vector2(layout.TimeLeft + layout.TimeWidth - Game1.smallFont.MeasureString(to).X,
-                    y + layout.NameOffset), Game1.textColor);
-            }
-        }
+        DrawClippedRows(b);
         ScrollMetrics metrics = Scrollbar;
         if (metrics.Visible)
         {
@@ -260,12 +240,60 @@ internal sealed class ProgressPage : IClickableMenu
     public override void performHoverAction(int x, int y)
     {
         hoveredName = null;
+        if (!ListBounds.Contains(x, y)) return;
         for (int i = 0; i < lines.Count; i++)
         {
             Line line = lines[i];
-            var bounds = new Rectangle(layout.Left, layout.ListTop + i * layout.RowHeight + layout.NameOffset,
+            var bounds = new Rectangle(layout.Left, layout.ListTop + i * layout.RowHeight - lineOffset + layout.NameOffset,
                 layout.NameWidth, layout.BarOffset - layout.NameOffset - 2);
             if (line.Name != line.FullName && bounds.Contains(x, y)) { hoveredName = line.FullName; break; }
+        }
+    }
+
+    private void DrawClippedRows(SpriteBatch b)
+    {
+        // GameMenu supplies an untransformed UI batch. As in SocialPage, use the
+        // game's scissor-enabled rasterizer, then restore the batch before tooltips/cursor.
+        b.End();
+        GraphicsDevice device = b.GraphicsDevice;
+        Rectangle previousScissor = device.ScissorRectangle;
+        RasterizerState previousRasterizer = device.RasterizerState;
+        Rectangle clip = Rectangle.Intersect(ListBounds, device.Viewport.Bounds);
+        if (previousRasterizer.ScissorTestEnable) clip = Rectangle.Intersect(clip, previousScissor);
+        device.ScissorRectangle = clip;
+        b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, Utility.ScissorEnabled);
+        try
+        {
+            int top = layout.ListTop - lineOffset;
+            // Keep native partitions behind the content, clipping them at the same edges.
+            for (int i = 0; i < lines.Count; i++)
+                drawHorizontalPartition(b, top + (i + 1) * layout.RowHeight - 36, small: true);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                Line line = lines[i]; int y = top + i * layout.RowHeight;
+                b.DrawString(Game1.smallFont, line.Name, new Vector2(layout.Left, y + layout.NameOffset), Game1.textColor);
+                float rightWidth = Game1.smallFont.MeasureString(line.Right).X * DetailScale;
+                DrawDetail(b, line.Right, layout.ProgressLeft + layout.ProgressWidth - rightWidth, y + layout.DetailOffset,
+                    Game1.textColor);
+                var rect = new Rectangle(layout.BarLeft, y + layout.BarOffset, layout.BarWidth, ProgressLayout.BarHeight);
+                DrawPixelBar(b, rect, TrackSwatches);
+                if (line.Fraction is double amount && amount > 0)
+                    DrawPixelBar(b, new Rectangle(rect.X, rect.Y, (int)(rect.Width * amount), rect.Height), FillSwatches);
+                if (line.Row.State is ProductionState.Working or ProductionState.Ready)
+                {
+                    string from = Fit(line.From, (layout.ProgressWidth - rightWidth - 12) / DetailScale);
+                    DrawDetail(b, from, layout.ProgressLeft, y + layout.DetailOffset, Game1.textColor);
+                    string to = Fit(line.To, layout.TimeWidth);
+                    b.DrawString(Game1.smallFont, to, new Vector2(layout.TimeLeft + layout.TimeWidth - Game1.smallFont.MeasureString(to).X,
+                        y + layout.NameOffset), Game1.textColor);
+                }
+            }
+        }
+        finally
+        {
+            b.End();
+            device.ScissorRectangle = previousScissor;
+            b.Begin(SpriteSortMode.Deferred, BlendState.AlphaBlend, SamplerState.PointClamp, null, previousRasterizer);
         }
     }
 
