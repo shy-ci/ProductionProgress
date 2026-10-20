@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ProductionProgress.Core</AssemblyName>
+    <RootNamespace>MossHarbor.ProductionProgress.Core</RootNamespace>
+  </PropertyGroup>
+</Project>

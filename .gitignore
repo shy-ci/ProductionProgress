@@ -1,0 +1,11 @@
+**/bin/
+**/obj/
+artifacts/
+.tools/
+.refs/
+*.user
+*.suo
+config.json
+local.props
+.DS_Store
+*.log

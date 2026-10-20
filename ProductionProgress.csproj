@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>ProductionProgress</AssemblyName>
+    <RootNamespace>MossHarbor.ProductionProgress</RootNamespace>
+    <Version>0.1.6</Version>
+    <GamePath Condition="'$(GamePath)' == ''">$(STARDEW_GAME_PATH)</GamePath>
+    <SmapiPath Condition="'$(SmapiPath)' == ''">$(GamePath)</SmapiPath>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="src/**/*.cs" />
+    <ProjectReference Include="core/ProductionProgress.Core.csproj" />
+    <None Update="manifest.json;i18n/*.json" CopyToOutputDirectory="PreserveNewest" />
+    <Reference Include="Stardew Valley"><HintPath>$(GamePath)/Stardew Valley.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="StardewValley.GameData"><HintPath>$(GamePath)/StardewValley.GameData.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="MonoGame.Framework"><HintPath>$(GamePath)/MonoGame.Framework.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="xTile"><HintPath>$(GamePath)/xTile.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="StardewModdingAPI"><HintPath>$(SmapiPath)/StardewModdingAPI.dll</HintPath><Private>false</Private></Reference>
+    <Reference Include="SMAPI.Toolkit.CoreInterfaces"><HintPath>$(SmapiPath)/SMAPI.Toolkit.CoreInterfaces.dll</HintPath><Private>false</Private></Reference>
+  </ItemGroup>
+  <Target Name="CheckReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="!Exists('$(GamePath)/Stardew Valley.dll')" Text="Set GamePath to the Stardew Valley 1.6.8 directory." />
+    <Error Condition="!Exists('$(SmapiPath)/StardewModdingAPI.dll')" Text="Set SmapiPath to the SMAPI 4.0.8 assembly directory." />
+  </Target>
+</Project>

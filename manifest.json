@@ -1,0 +1,10 @@
+{
+  "Name": "Progress",
+  "Author": "MossHarbor",
+  "Version": "0.1.6",
+  "Description": "A progress tab in the game menu, powered by state-change notifications.",
+  "UniqueID": "MossHarbor.ProductionProgress",
+  "EntryDll": "ProductionProgress.dll",
+  "MinimumApiVersion": "4.0.8",
+  "UpdateKeys": []
+}

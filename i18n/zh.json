@@ -1,0 +1,15 @@
+{
+  "title": "进度", "aging": "陈酿", "done": "已完成", "finish": "完成",
+  "withered": "已枯萎", "unknown": "进行中", "growing": "生长中", "regrowing": "再生中",
+  "processing": "制作中", "collecting": "采集中", "normal": "普通", "silver": "银星",
+  "gold": "金星", "iridium": "铱星", "empty": "暂无进度",
+  "initializing": "正在整理进度...", "synchronizing": "正在等待主机同步...",
+  "host-required": "联机主机需要安装进度模组",
+  "eta-unknown": "时间未知", "completion-date-unknown": "日期未知",
+  "growth-complete": "生长完成", "processing-complete": "制作完成", "collection-complete": "采集完成",
+  "mature": "成熟", "progress-target": "{{percent}}%{{target}}",
+  "clock-date": "{{date}} {{time}}", "clock-night": "夜间{{time}}",
+  "date-short": "{{season}}{{day}}日", "date-year": "{{year}}年{{season}}{{day}}日",
+  "season-spring": "春", "season-summer": "夏", "season-fall": "秋", "season-winter": "冬",
+  "unknown-item": "未知产物", "small-window": "窗口空间不足，请降低界面缩放"
+}
