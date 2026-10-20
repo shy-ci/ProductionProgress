@@ -257,14 +257,19 @@ internal sealed class MenuIntegration
         int y = tab.bounds.Y + (selected ? (int)(8 * scale) : 0);
         Rectangle Part(int x, int top, int width, int height) => new(tab.bounds.X + (int)(x * scale),
             y + (int)(top * scale), Math.Max(1, (int)(width * scale)), Math.Max(1, (int)(height * scale)));
+        Rectangle visualBounds = Part(0, 0, 64, 64);
         // Native skills-tab background is the blank portrait tab at (16,368).
-        b.Draw(Game1.mouseCursors, Part(0, 0, 64, 64), new Rectangle(16, 368, 16, 16), Color.White);
-        b.Draw(icon.GetTexture(), Part(16, 16, 32, 32), icon.GetSourceRect(0, null), Color.White);
+        b.Draw(Game1.mouseCursors, visualBounds, new Rectangle(16, 368, 16, 16), Color.White);
+        // Native tab artwork is centred around y=40 in the 64px tile, below its top rim.
+        // Keep the frame's original selected offset; only align the icon inside the frame.
+        b.Draw(icon.GetTexture(), Part(16, 24, 32, 32), icon.GetSourceRect(0, null), Color.White);
         Vector2 mouse = helper.Input.GetCursorPosition().ScreenPixels;
-        if (!selected && tab.bounds.Contains((int)mouse.X, (int)mouse.Y))
-        {
+        if (visualBounds.Contains((int)mouse.X, (int)mouse.Y))
             IClickableMenu.drawHoverText(b, helper.Translation.Get("title"), Game1.smallFont);
-            menu.drawMouse(b);
-        }
+        // RenderedActiveMenu runs after GameMenu's cursor draw. Finish our overlay with
+        // the native cursor, even on the selected tab or when only its edge overlaps it.
+        // Preserve GameMenu's exception for the collection letter viewer in snappy mode.
+        if (!(Game1.options.SnappyMenus && CurrentPage(menu) is CollectionsPage { letterviewerSubMenu: not null }))
+            menu.drawMouse(b, true);
     }
 }

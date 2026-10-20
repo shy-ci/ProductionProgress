@@ -59,6 +59,8 @@ internal sealed class ProductionMenu : IClickableMenu
     }
     public override void receiveRightClick(int x, int y, bool playSound = true) => Forward(() => native.receiveRightClick(x, y, playSound));
     public override void receiveScrollWheelAction(int direction) => Forward(() => native.receiveScrollWheelAction(direction));
+    public override void leftClickHeld(int x, int y) => Forward(() => native.leftClickHeld(x, y));
+    public override void releaseLeftClick(int x, int y) => Forward(() => native.releaseLeftClick(x, y));
     public override void receiveKeyPress(Keys key)
     {
         if (key == Keys.Escape || Game1.options.doesInputListContain(Game1.options.menuButton, key)) { Close(); return; }

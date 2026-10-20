@@ -25,10 +25,11 @@ public sealed class ProductionFeedbackTests
     public void LabelsFollowLongBarWithoutOverlappingNames(int textHeight, int detailHeight)
     {
         const int x = 100, y = 40, width = 880, height = 680, tabsBottom = y + 80;
-        var layout = ProgressLayout.Create(x, y, width, height, tabsBottom, 96, 40, textHeight, detailHeight);
+        const int contentInset = 40 + 16; // native border plus spaceToClearSideBorder
+        var layout = ProgressLayout.Create(x, y, width, height, tabsBottom, 96, contentInset, textHeight, detailHeight);
         Assert.Equal(tabsBottom + 16, layout.ListTop);
-        Assert.Equal(x + 40, layout.Left);
-        Assert.Equal(width - 80, layout.Width);
+        Assert.Equal(x + contentInset, layout.Left);
+        Assert.Equal(width - contentInset * 2, layout.Width);
         Assert.True(layout.Left + layout.NameWidth < layout.TimeLeft);
         Assert.Equal(layout.Left + layout.Width, layout.TimeLeft + layout.TimeWidth);
         Assert.Equal(layout.BarLeft, layout.ProgressLeft);
@@ -40,7 +41,7 @@ public sealed class ProductionFeedbackTests
         Assert.True(layout.RowHeight >= layout.DetailOffset + detailHeight);
         Assert.True(layout.NameOffset + textHeight <= layout.RowHeight);
         Assert.True(layout.VisibleRows >= 4);
-        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - 40);
+        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - contentInset);
     }
 
     [Fact]

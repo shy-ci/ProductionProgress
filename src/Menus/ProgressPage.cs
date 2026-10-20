@@ -24,12 +24,22 @@ internal sealed class ProgressPage : IClickableMenu
     private long revision = -1, clock = -1;
     private string language = "";
     private int scroll, ticks;
+    private bool draggingScroll;
+    private int scrollGrabOffset, scrollPointerY;
     private const float DetailScale = 0.85f;
     private string? hoveredName;
     private ProgressLayout layout;
-    private readonly Color track = new(178, 148, 98), trackLight = new(213, 180, 121), trackShadow = new(134, 98, 57);
-    private readonly Color fill = new(113, 149, 61), fillLight = new(161, 184, 91), fillShadow = new(77, 111, 42);
-    private readonly Color ready = new(65, 106, 45);
+    private readonly record struct BarSwatches(Rectangle Body, Rectangle Highlight, Rectangle Shadow);
+    private static readonly Rectangle ScrollRunnerSource = new(403, 383, 6, 6);
+    private static readonly Rectangle ScrollThumbSource = new(435, 463, 6, 10);
+    // Source pixels are from the native scrollbar's body, light and dark regions.
+    // Drawing those pixels preserves any content-pack recolor without GPU readback.
+    private static readonly BarSwatches TrackSwatches = new(
+        Pixel(ScrollRunnerSource, 1, 1), Pixel(ScrollRunnerSource, 1, 2), Pixel(ScrollRunnerSource, 4, 1));
+    private static readonly BarSwatches FillSwatches = new(
+        Pixel(ScrollThumbSource, 2, 2), Pixel(ScrollThumbSource, 2, 1), Pixel(ScrollThumbSource, 1, 3));
+
+    private static Rectangle Pixel(Rectangle source, int x, int y) => new(source.X + x, source.Y + y, 1, 1);
 
     public ProgressPage(GameMenu menu, ITranslationHelper text, Func<IReadOnlyCollection<ProgressRow>> getRows,
         Func<long> getRevision, Func<string?> getStatus, Action opened)
@@ -40,21 +50,63 @@ internal sealed class ProgressPage : IClickableMenu
         layout = CreateLayout();
     }
 
-    public void Open() { opened(); revision = -1; Refresh(); }
+    public void Open() { draggingScroll = false; opened(); revision = -1; Refresh(); }
     private int VisibleRows => layout.VisibleRows;
-    public void ReleaseResources() { itemNames.Clear(); ordered.Clear(); lines.Clear(); }
+    public void ReleaseResources() { draggingScroll = false; itemNames.Clear(); ordered.Clear(); lines.Clear(); }
     private ProgressLayout CreateLayout() => ProgressLayout.Create(menu.xPositionOnScreen, menu.yPositionOnScreen,
         width, height, menu.tabs.Select(t => t.bounds.Bottom).DefaultIfEmpty(menu.yPositionOnScreen).Max(),
-        spaceToClearTopBorder, borderWidth,
+        spaceToClearTopBorder, borderWidth + spaceToClearSideBorder,
         (int)Math.Ceiling(Game1.smallFont.MeasureString(text.Get("growing") + "Ag").Y),
         (int)Math.Ceiling(Game1.smallFont.MeasureString(text.Get("growing") + "Ag").Y * DetailScale));
     public void Scroll(int delta)
     {
-        int next = Math.Clamp(scroll + delta, 0, Math.Max(0, ordered.Count - VisibleRows));
+        SetScroll(scroll + delta);
+    }
+
+    private void SetScroll(int index)
+    {
+        int next = Math.Clamp(index, 0, Math.Max(0, ordered.Count - VisibleRows));
         if (next != scroll) { scroll = next; clock = -1; Refresh(); }
     }
 
     public override void receiveScrollWheelAction(int direction) => Scroll(direction > 0 ? -2 : 2);
+
+    private int ScrollbarX => menu.xPositionOnScreen + menu.width + 16;
+    private int ScrollbarHeight => VisibleRows * layout.RowHeight;
+    private ScrollMetrics Scrollbar => ScrollMetrics.Create(layout.ListTop, ScrollbarHeight, ordered.Count, VisibleRows, scroll);
+
+    public override void receiveLeftClick(int x, int y, bool playSound = true)
+    {
+        Refresh();
+        ScrollMetrics metrics = Scrollbar;
+        if (getStatus() != null || !metrics.Visible) return;
+        int before = scroll;
+        if (new Rectangle(ScrollbarX, layout.ListTop, 44, ScrollMetrics.ArrowHeight).Contains(x, y)) Scroll(-1);
+        else if (new Rectangle(ScrollbarX, layout.ListTop + ScrollbarHeight - ScrollMetrics.ArrowHeight,
+            44, ScrollMetrics.ArrowHeight).Contains(x, y)) Scroll(1);
+        else if (new Rectangle(ScrollbarX, metrics.RunnerTop, 44, metrics.RunnerHeight).Contains(x, y))
+        {
+            draggingScroll = true;
+            // Grabbing the thumb preserves the pointer offset; a track click centres it.
+            bool onThumb = y >= metrics.ThumbTop && y < metrics.ThumbTop + ScrollMetrics.ThumbHeight;
+            scrollGrabOffset = onThumb ? y - metrics.ThumbTop : ScrollMetrics.ThumbHeight / 2;
+            scrollPointerY = y;
+            if (!onThumb) SetScroll(metrics.IndexAt(y, scrollGrabOffset));
+        }
+        if (playSound && scroll != before) Game1.playSound("shwip");
+    }
+
+    public override void leftClickHeld(int x, int y)
+    {
+        if (!draggingScroll) return;
+        ScrollMetrics metrics = Scrollbar;
+        if (getStatus() != null || !metrics.Visible) { draggingScroll = false; return; }
+        if (y == scrollPointerY) return;
+        scrollPointerY = y;
+        SetScroll(metrics.IndexAt(y, scrollGrabOffset));
+    }
+
+    public override void releaseLeftClick(int x, int y) => draggingScroll = false;
     public override void receiveGamePadButton(Buttons button)
     {
         if (button is Buttons.DPadDown or Buttons.LeftThumbstickDown) Scroll(1);
@@ -72,7 +124,7 @@ internal sealed class ProgressPage : IClickableMenu
     {
         ProgressLayout nextLayout = CreateLayout();
         if (nextLayout != layout) { layout = nextLayout; revision = -1; }
-        if (getStatus() != null) return; // don't sort partial snapshots hidden by the loading message
+        if (getStatus() != null) { draggingScroll = false; return; } // don't sort partial snapshots hidden by the loading message
         long now = ProgressMath.ProcessingClock(Game1.Date.TotalDays, Game1.timeOfDay);
         string currentLanguage = LocalizedContentManager.CurrentLanguageCode.ToString();
         long currentRevision = getRevision();
@@ -85,6 +137,7 @@ internal sealed class ProgressPage : IClickableMenu
                 .ThenBy(r => r.Location, StringComparer.Ordinal).ThenBy(r => r.Id).ToList();
             scroll = Math.Clamp(scroll, 0, Math.Max(0, ordered.Count - VisibleRows));
         }
+        if (!Scrollbar.Visible) draggingScroll = false;
         language = currentLanguage; revision = currentRevision; clock = now;
         // Only visible rows need localized item creation, percentage text and layout.
         lines = ordered.Skip(scroll).Take(VisibleRows).Select(row =>
@@ -163,7 +216,6 @@ internal sealed class ProgressPage : IClickableMenu
             b.DrawString(Game1.smallFont, Fit(status ?? text.Get("empty"), layout.Width), new Vector2(left, top + layout.NameOffset), Game1.textColor);
             return;
         }
-        bool scrollable = ordered.Count > VisibleRows;
         // Match SocialPage: keep the native partition and its padding behind row content.
         for (int i = 0; i < lines.Count; i++)
             drawHorizontalPartition(b, top + (i + 1) * layout.RowHeight - 36, small: true);
@@ -175,10 +227,10 @@ internal sealed class ProgressPage : IClickableMenu
             DrawDetail(b, line.Right, layout.ProgressLeft + layout.ProgressWidth - rightWidth, y + layout.DetailOffset,
                 Game1.textColor);
             var rect = new Rectangle(layout.BarLeft, y + layout.BarOffset, layout.BarWidth, ProgressLayout.BarHeight);
-            DrawPixelBar(b, rect, track, trackLight, trackShadow);
+            DrawPixelBar(b, rect, TrackSwatches);
             if (line.Fraction is double amount && amount > 0)
                 DrawPixelBar(b, new Rectangle(rect.X, rect.Y, (int)(rect.Width * amount), rect.Height),
-                    line.Row.State == ProductionState.Ready ? ready : fill, fillLight, fillShadow);
+                    FillSwatches);
             if (line.Row.State is ProductionState.Working or ProductionState.Ready)
             {
                 string from = Fit(line.From, (layout.ProgressWidth - rightWidth - 12) / DetailScale);
@@ -188,14 +240,19 @@ internal sealed class ProgressPage : IClickableMenu
                     y + layout.NameOffset), Game1.textColor);
             }
         }
-        if (scrollable)
+        ScrollMetrics metrics = Scrollbar;
+        if (metrics.Visible)
         {
-            int heightAvailable = VisibleRows * layout.RowHeight - 10;
-            int thumbHeight = Math.Max(24, heightAvailable * VisibleRows / ordered.Count);
-            int thumbY = top + (int)((heightAvailable - thumbHeight) * (double)scroll / Math.Max(1, ordered.Count - VisibleRows));
-            int barX = layout.Left + layout.Width + 12;
-            b.Draw(Game1.staminaRect, new Rectangle(barX, top, 6, heightAvailable), track);
-            b.Draw(Game1.staminaRect, new Rectangle(barX, thumbY, 6, thumbHeight), fill);
+            // OptionsPage/SocialPage sprites from the current (possibly reskinned) game atlas.
+            // Read Game1.mouseCursors at draw time so replacement textures aren't held stale.
+            drawTextureBox(b, Game1.mouseCursors, ScrollRunnerSource,
+                ScrollbarX + 12, metrics.RunnerTop, 24, metrics.RunnerHeight, Color.White, 4f, false);
+            b.Draw(Game1.mouseCursors, new Rectangle(ScrollbarX, top, 44, ScrollMetrics.ArrowHeight),
+                new Rectangle(421, 459, 11, 12), Color.White);
+            b.Draw(Game1.mouseCursors, new Rectangle(ScrollbarX, top + ScrollbarHeight - ScrollMetrics.ArrowHeight,
+                44, ScrollMetrics.ArrowHeight), new Rectangle(421, 472, 11, 12), Color.White);
+            b.Draw(Game1.mouseCursors, new Rectangle(ScrollbarX + 12, metrics.ThumbTop, 24, ScrollMetrics.ThumbHeight),
+                ScrollThumbSource, Color.White);
         }
         if (hoveredName != null) drawHoverText(b, hoveredName, Game1.smallFont);
     }
@@ -216,18 +273,19 @@ internal sealed class ProgressPage : IClickableMenu
         => b.DrawString(Game1.smallFont, value, new Vector2(x, y), color,
             0, Vector2.Zero, DetailScale, SpriteEffects.None, 0.9f);
 
-    private static void DrawPixelBar(SpriteBatch b, Rectangle bounds, Color body, Color highlight, Color shadow)
+    private static void DrawPixelBar(SpriteBatch b, Rectangle bounds, BarSwatches swatches)
     {
         if (bounds.Width <= 0 || bounds.Height <= 0) return;
+        Texture2D texture = Game1.mouseCursors;
         int step = Math.Min(2, Math.Min(bounds.Width / 4, bounds.Height / 5));
-        if (step == 0) { b.Draw(Game1.staminaRect, bounds, body); return; }
+        if (step == 0) { b.Draw(texture, bounds, swatches.Body, Color.White); return; }
         // Integer-pixel bands form clipped, stepped caps and a shallow bevel.
-        // The bar uses the same texture batch as the page; no per-frame texture allocation.
-        b.Draw(Game1.staminaRect, new Rectangle(bounds.X + step * 2, bounds.Y, bounds.Width - step * 4, step), highlight);
-        b.Draw(Game1.staminaRect, new Rectangle(bounds.X + step, bounds.Y + step, bounds.Width - step * 2, step), body);
-        b.Draw(Game1.staminaRect, new Rectangle(bounds.X, bounds.Y + step * 2, bounds.Width, bounds.Height - step * 4), body);
-        b.Draw(Game1.staminaRect, new Rectangle(bounds.X + step, bounds.Bottom - step * 2, bounds.Width - step * 2, step), body);
-        b.Draw(Game1.staminaRect, new Rectangle(bounds.X + step * 2, bounds.Bottom - step, bounds.Width - step * 4, step), shadow);
+        // Use the current game atlas on every draw, never a copied texture or cached RGB.
+        b.Draw(texture, new Rectangle(bounds.X + step * 2, bounds.Y, bounds.Width - step * 4, step), swatches.Highlight, Color.White);
+        b.Draw(texture, new Rectangle(bounds.X + step, bounds.Y + step, bounds.Width - step * 2, step), swatches.Body, Color.White);
+        b.Draw(texture, new Rectangle(bounds.X, bounds.Y + step * 2, bounds.Width, bounds.Height - step * 4), swatches.Body, Color.White);
+        b.Draw(texture, new Rectangle(bounds.X + step, bounds.Bottom - step * 2, bounds.Width - step * 2, step), swatches.Body, Color.White);
+        b.Draw(texture, new Rectangle(bounds.X + step * 2, bounds.Bottom - step, bounds.Width - step * 4, step), swatches.Shadow, Color.White);
     }
 
     private static string Fit(string value, float width)
