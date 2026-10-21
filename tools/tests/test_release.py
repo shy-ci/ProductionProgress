@@ -36,6 +36,10 @@ def package(extra=None, manifest=None, duplicate=False):
 
 class ReleaseTests(unittest.TestCase):
     def setUp(self):
+        # CI sets GITHUB_STEP_SUMMARY. Simulated publishing must never write to it.
+        summary_patch = patch.object(release, "summary")
+        summary_patch.start()
+        self.addCleanup(summary_patch.stop)
         self.data = package()
         self.sha = release.digest(self.data)
         self.release = {"id": 10, "draft": True, "prerelease": False,
