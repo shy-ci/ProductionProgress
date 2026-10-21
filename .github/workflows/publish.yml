@@ -1,4 +1,4 @@
-name: Publish GitHub and Nexus (approval required)
+name: Publish GitHub, Nexus and CurseForge (approval required)
 run-name: ${{ inputs.mode }} ${{ inputs.tag }}
 
 on:
@@ -41,9 +41,10 @@ jobs:
           persist-credentials: false
       - name: Test release checks
         run: python3 -m unittest discover -s tools/tests -v
-      - name: Read Nexus account, current file, version and changelog
+      - name: Check Nexus and CurseForge connections (read only)
         env:
           NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
         run: python3 tools/release.py connection
   preview:
     if: github.repository == 'shy-ci/ProductionProgress' && github.ref == 'refs/heads/main' && inputs.mode == 'publish'
@@ -85,11 +86,12 @@ jobs:
         with:
           name: release-candidate
           path: release-candidate/
-      - name: Recheck approved draft and Nexus target
+      - name: Recheck approved draft and both upload targets
         id: check
         env:
           GH_TOKEN: ${{ github.token }}
           NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
         run: python3 tools/release.py check
       - name: Read the approved changelog as data
         id: notes
@@ -117,11 +119,12 @@ jobs:
           archive_existing_version: true
           update_mod_version: true
           changelog: ${{ steps.notes.outputs.changelog }}
-      - name: Verify Nexus, then publish the same GitHub draft
+      - name: Verify Nexus, submit CurseForge, then publish the GitHub draft
         id: finish
         env:
           GH_TOKEN: ${{ github.token }}
           NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          CURSEFORGE_API_TOKEN: ${{ secrets.CURSEFORGE_API_TOKEN }}
           NEXUS_VERSION_ID: ${{ steps.nexus.outputs.version_id }}
         run: python3 tools/release.py finish
       - name: Record completed and failed stages

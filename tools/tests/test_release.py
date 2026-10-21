@@ -211,11 +211,29 @@ class ReleaseTests(unittest.TestCase):
                 order.append("publish")
                 self.assertEqual(payload["draft"], False)
                 return {"draft": False, "tag_name": "v0.1.17", "html_url": "https://github.com/shy-ci/ProductionProgress/releases/tag/v0.1.17"}
-            with patch.object(release, "load_candidate", return_value=self.snapshot()), \
+            snapshot = self.snapshot()
+            def submit(*args):
+                order.append("curseforge")
+                return {"status": "submitted", "project_id": 1755780, "sha256": snapshot["sha256"],
+                        "notes_sha256": snapshot["notes_sha256"], "version": "0.1.17", "file_id": 123}
+            with patch.object(release, "load_candidate", return_value=snapshot), \
                  patch.object(release, "verify_nexus", side_effect=lambda *args: order.append("verify")), \
+                 patch.object(release.curseforge, "submit", side_effect=submit), \
                  patch.object(release, "github", side_effect=publish):
                 release.finish(argparse.Namespace(directory=directory, version_id="new"))
-            self.assertEqual(order, ["verify", "publish"])
+            self.assertEqual(order, ["verify", "curseforge", "publish"])
+
+    def test_curseforge_failure_keeps_github_draft(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            release.save_json(directory / "target.json", {"file_id": "file-uid"})
+            with patch.object(release, "load_candidate", return_value=self.snapshot()), \
+                 patch.object(release, "verify_nexus"), \
+                 patch.object(release.curseforge, "submit", side_effect=ValueError("CF response unknown")), \
+                 patch.object(release, "github") as publish:
+                with self.assertRaisesRegex(ValueError, "CF response unknown"):
+                    release.finish(argparse.Namespace(directory=directory, version_id="new"))
+                publish.assert_not_called()
 
     def test_connection_check_only_reads_the_expected_account(self):
         def response(path, legacy=False):
@@ -224,7 +242,8 @@ class ReleaseTests(unittest.TestCase):
             if path.endswith("54196.json"):
                 return {"version": "0.1.16"}
             return self.nexus(path, legacy)
-        with patch.object(release, "nexus", side_effect=response), patch.object(release, "github") as github:
+        with patch.object(release, "nexus", side_effect=response), patch.object(release, "github") as github, \
+             patch.object(release.curseforge, "preflight", return_value={"game_version_id": 1234}):
             release.connection(None)
             github.assert_not_called()
         with patch.object(release, "nexus", return_value={"user_id": 1}), self.assertRaisesRegex(ValueError, "既有 Nexus 发布账户"):

@@ -14,6 +14,7 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote
 from urllib.request import Request, urlopen
 from zipfile import BadZipFile, ZipFile
+import curseforge_release as curseforge
 
 REPOSITORY = "shy-ci/ProductionProgress"
 NEXUS_PAGE = "https://www.nexusmods.com/stardewvalley/mods/54196"
@@ -137,6 +138,7 @@ def release_snapshot(tag, sha256):
         "filename": filename, "asset_id": assets[0]["id"], "sha256": sha256,
         "size": len(data), "notes": notes, "notes_sha256": digest(notes.encode()),
         "nexus_page": NEXUS_PAGE,
+        "curseforge_page": curseforge.PAGE, "curseforge_project_id": curseforge.PROJECT_ID,
     }, data
 
 
@@ -168,10 +170,11 @@ def prepare(args):
     (args.directory / "changelog.txt").write_text(snapshot["notes"], encoding="utf-8")
     output({"version": snapshot["version"], "release_id": snapshot["release_id"]})
     summary(f"## 等待你的发布确认：{snapshot['tag']}\n\n"
-            f"- GitHub：{REPOSITORY}（现为草稿）\n- Nexus：{NEXUS_PAGE}\n"
+            f"- GitHub：{REPOSITORY}（现为草稿）\n- Nexus：{NEXUS_PAGE}\n- CurseForge：{curseforge.PAGE}\n"
             f"- 文件：`{snapshot['filename']}`，{snapshot['size']} bytes\n"
             f"- SHA-256：`{snapshot['sha256']}`\n- 源码提交：`{snapshot['source_commit']}`\n"
-            "- 操作：更新现有 Main / Primary 文件、归档旧文件、同步版本号和以下更新日志；最后公开 GitHub Release。\n"
+            "- 操作：更新 Nexus Main / Primary 文件并归档旧版；向 CurseForge 项目 1755780 提交同一 ZIP 和日志，"
+            "标记 Stardew Valley 1.6.8 / Release，平台审核通过后公开；最后公开 GitHub Release。\n"
             "- 请审阅下面的原文和 release-candidate 附件，再由 shy-ci 批准 production-release。\n\n"
             "### 待发布更新日志\n\n" + snapshot["notes"])
 
@@ -226,18 +229,24 @@ def connection(args):
     logs = nexus(NEXUS_MOD + "/changelogs.json", legacy=True)
     require(details["version"] == previous["version"], "Nexus 页面与主文件版本不一致。")
     require(previous["version"] in logs, "当前正式版本缺少更新日志。")
+    cf_target = curseforge.preflight()
     summary("## 只读连接检查通过\n\n"
             f"- Nexus 账户：aaaa2521（237909389）\n- 目标：{NEXUS_PAGE}\n"
             f"- 当前正式版本：{previous['version']}\n- 主文件链：`{file_id}`\n"
-            "- 已读取文件、版本号和更新日志；没有上传、追加日志或公开 GitHub Release。")
+            f"- CurseForge 上传 API 只读连通；Stardew Valley {curseforge.GAME_VERSION} ID：{cf_target['game_version_id']}\n"
+            f"- CurseForge 目标（已在作者后台核验）：{curseforge.PROJECT_ID}\n"
+            "- 本次未上传文件，未验证上传写权限或新文件的审核状态；没有追加日志或公开 GitHub Release。")
 
 
 def check(args):
     snapshot = load_candidate(args.directory)
     target = select_nexus_target(snapshot)
+    cf_target = curseforge.preflight()
     save_json(args.directory / "target.json", target)
+    save_json(args.directory / "curseforge-target.json", cf_target)
     output({**target, "version": snapshot["version"], "filename": snapshot["filename"]})
-    summary(f"确认后复核通过：将 Nexus {target['previous_version']} 更新为 {snapshot['version']}。")
+    summary(f"确认后复核通过：将 Nexus {target['previous_version']} 更新为 {snapshot['version']}；"
+            f"同一安装包提交 CurseForge {curseforge.PROJECT_ID}，游戏版本 {curseforge.GAME_VERSION}。")
 
 
 def normalized_lines(text):
@@ -273,23 +282,27 @@ def finish(args):
             if attempt == 5:
                 raise
             time.sleep(10)
+    cf_receipt = curseforge.submit(args.directory, snapshot, validate_package)
+    curseforge.verify_receipt(cf_receipt, snapshot)
     result = github(f"releases/{snapshot['release_id']}", {"draft": False, "make_latest": "true"})
     require(not result["draft"] and result["tag_name"] == snapshot["tag"], "GitHub 公开发布结果不符合预期。")
-    summary(f"## 发布完成\n\nGitHub：{result['html_url']}\n\nNexus：{NEXUS_PAGE}\n\n"
-            f"文件版本 ID：`{args.version_id}`；版本号和中英文更新日志已回读核验。")
+    summary(f"## 发布执行结果\n\nGitHub 已公开：{result['html_url']}\n\nNexus 已核验：{NEXUS_PAGE}\n\n"
+            f"Nexus 文件版本 ID：`{args.version_id}`；版本号和中英文更新日志已回读核验。\n\n"
+            f"CurseForge 已提交：{curseforge.PAGE}，文件 ID `{cf_receipt['file_id']}`。"
+            "审核和公开状态尚未核验，不将提交成功记录为已上线。")
 
 
 def receipt(args):
     value = {key: os.environ.get(key, "") for key in
              ("GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "CHECK_RESULT", "UPLOAD_RESULT", "FINISH_RESULT", "NEXUS_VERSION_ID")}
-    for name in ("release", "target"):
+    for name in ("release", "target", "curseforge-target", "curseforge"):
         path = args.directory / f"{name}.json"
         if path.exists():
             value[name] = json.loads(path.read_text(encoding="utf-8"))
     save_json(Path("release-receipt") / "receipt.json", value)
     if value["FINISH_RESULT"] != "success":
-        summary("## 未完成双平台发布\n\n请查看 release-receipt 和失败步骤。Nexus 可能已部分成功，"
-                "不要直接重复上传或追加日志；先核对文件、版本号、日志及 GitHub 草稿状态。没有自动回滚或删除文件。")
+        summary("## 发布流程未全部完成\n\n请查看 release-receipt 和失败步骤。Nexus 或 CurseForge 可能已部分成功，"
+                "不要直接重复上传或追加日志；先核对文件、版本号、日志、CurseForge 回执及 GitHub 草稿状态。没有自动回滚或删除文件。")
 
 
 def main():
