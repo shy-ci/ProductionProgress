@@ -9,3 +9,6 @@ config.json
 local.props
 .DS_Store
 *.log
+__pycache__/
+release-candidate/
+release-receipt/

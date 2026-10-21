@@ -1,0 +1,139 @@
+name: Publish GitHub and Nexus (approval required)
+run-name: ${{ inputs.mode }} ${{ inputs.tag }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Check connection only, or prepare a release for approval
+        required: true
+        type: choice
+        options:
+          - check-connection
+          - publish
+        default: check-connection
+      tag:
+        description: Existing source tag with a draft Release (vX.Y.Z)
+        required: false
+        type: string
+      sha256:
+        description: SHA-256 of the locally verified release ZIP
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+# All versions update the same Nexus Main file. Never cancel a publish in flight.
+concurrency:
+  group: production-progress-release
+  cancel-in-progress: false
+
+jobs:
+  connection:
+    if: github.repository == 'shy-ci/ProductionProgress' && github.ref == 'refs/heads/main' && inputs.mode == 'check-connection'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production-release
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Read Nexus account, current file, version and changelog
+        env:
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+        run: python3 tools/release.py connection
+  preview:
+    if: github.repository == 'shy-ci/ProductionProgress' && github.ref == 'refs/heads/main' && inputs.mode == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Test release checks
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: Prepare reviewable release snapshot (read only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag }}
+          RELEASE_SHA256: ${{ inputs.sha256 }}
+        run: python3 tools/release.py prepare --tag "$RELEASE_TAG" --sha256 "$RELEASE_SHA256"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-candidate
+          path: release-candidate/
+          if-no-files-found: error
+          retention-days: 30
+
+  publish:
+    needs: preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment:
+      name: production-release
+      url: https://github.com/shy-ci/ProductionProgress/actions/runs/${{ github.run_id }}
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-candidate
+          path: release-candidate/
+      - name: Recheck approved draft and Nexus target
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+        run: python3 tools/release.py check
+      - name: Read the approved changelog as data
+        id: notes
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, uuid
+          text = pathlib.Path('release-candidate/changelog.txt').read_text()
+          delimiter = str(uuid.uuid4())
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f'changelog<<{delimiter}\n{text}\n{delimiter}\n')
+          PY
+      - name: Upload package, version and changelog to Nexus
+        id: nexus
+        uses: Nexus-Mods/upload-action@98532f7670c27cbecc78fae03fa3e278147827e2 # v1.0.0-beta.11
+        with:
+          api_key: ${{ secrets.NEXUSMODS_API_KEY }}
+          file_id: ${{ steps.check.outputs.file_id }}
+          mod_id: ${{ steps.check.outputs.mod_id }}
+          filename: release-candidate/${{ steps.check.outputs.filename }}
+          display_name: Production Progress ${{ steps.check.outputs.version }}
+          version: ${{ steps.check.outputs.version }}
+          category: main
+          primary_mod_manager_download: true
+          allow_mod_manager_download: true
+          archive_existing_version: true
+          update_mod_version: true
+          changelog: ${{ steps.notes.outputs.changelog }}
+      - name: Verify Nexus, then publish the same GitHub draft
+        id: finish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEXUSMODS_API_KEY: ${{ secrets.NEXUSMODS_API_KEY }}
+          NEXUS_VERSION_ID: ${{ steps.nexus.outputs.version_id }}
+        run: python3 tools/release.py finish
+      - name: Record completed and failed stages
+        if: always()
+        env:
+          CHECK_RESULT: ${{ steps.check.outcome }}
+          UPLOAD_RESULT: ${{ steps.nexus.outcome }}
+          FINISH_RESULT: ${{ steps.finish.outcome }}
+          NEXUS_VERSION_ID: ${{ steps.nexus.outputs.version_id }}
+        run: python3 tools/release.py receipt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: release-receipt-${{ github.run_attempt }}
+          path: release-receipt/
+          if-no-files-found: warn
+          retention-days: 90
