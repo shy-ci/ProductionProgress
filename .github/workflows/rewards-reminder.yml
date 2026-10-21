@@ -1,0 +1,42 @@
+name: 月度 Mod 积分提醒 - 请查看 Nexus 与 CurseForge
+run-name: 月度积分提醒 - 请登录平台查看余额与到期情况
+
+on:
+  # 02:15 UTC = 10:15 Asia/Shanghai on the 8th of each month.
+  schedule:
+    - cron: '15 2 8 * *'
+  workflow_dispatch:
+
+# This job only produces a reminder. It never uses publishing credentials.
+permissions: {}
+
+jobs:
+  remind:
+    if: github.repository == 'shy-ci/ProductionProgress'
+    name: 查看奖励积分并保持账户活跃
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - name: 准备月度提醒
+        shell: bash
+        run: |
+          cat >> "$GITHUB_STEP_SUMMARY" <<'REMINDER'
+          ## 本月 Mod 奖励积分检查
+
+          请登录两个平台，查看是否有新的积分到账：
+
+          - [Nexus 钱包](https://www.nexusmods.com/modrewards#/wallet)：核对可用 DP、待发放 DP 和月度记录。
+          - [CurseForge 作者总览](https://authors.curseforge.com/)：核对奖励积分及最早一批积分的到期时间。
+          - 登录 CurseForge 保持活跃。其当前规则为超过 60 天不登录暂停新增积分；已有积分有效期为三年。
+
+          这是一封定期检查提醒，不代表平台已向你发放积分。本工作流不读取实时余额、不兑换奖励、不改变分成，也不触发 mod 构建或发布。
+
+          ### 通知与运行说明
+
+          GitHub Actions 完成通知负责发送邮件，收件地址由 GitHub 账户通知设置决定；无需给本工作流配置邮箱密码。
+
+          GitHub 的定时运行可能延迟，公开仓库连续 60 天没有活动时，定时工作流可能自动停用。若长时间未收到月度邮件，请检查此工作流是否仍启用。
+
+          [Nexus DP 规则](https://help.nexusmods.com/article/68-donation-points-system-terms-of-service) · [CurseForge 奖励 FAQ](https://support.curseforge.com/support/solutions/articles/9000197902-reward-program-faq)
+          REMINDER
+          echo "月度提醒已准备：请登录 Nexus 与 CurseForge 查看奖励积分。"
