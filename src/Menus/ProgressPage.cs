@@ -20,8 +20,9 @@ internal sealed class ProgressPage : IClickableMenu
     private readonly GameMenu menu;
     private readonly Dictionary<long, string> itemNames = new();
     private List<Line> lines = new();
-    private List<ProgressRow> ordered = new();
+    private List<ProgressDisplayGroup> ordered = new();
     private long revision = -1, clock = -1;
+    private long groupedDay = -1;
     private string language = "";
     private int scroll, lineOffset, ticks;
     private bool draggingScroll;
@@ -130,12 +131,16 @@ internal sealed class ProgressPage : IClickableMenu
         string currentLanguage = LocalizedContentManager.CurrentLanguageCode.ToString();
         long currentRevision = getRevision();
         if (currentRevision == revision && clock == now && language == currentLanguage) return;
-        if (language != currentLanguage || currentRevision != revision)
+        if (language != currentLanguage || currentRevision != revision || now / 1600 != groupedDay)
         {
             itemNames.Clear();
-            // Sorting is triggered by a changed batch, never by the ten-minute clock alone.
-            ordered = getRows().OrderBy(r => r.State).ThenBy(r => r.Kind).ThenBy(r => r.Name, StringComparer.CurrentCulture)
-                .ThenBy(r => r.Location, StringComparer.Ordinal).ThenBy(r => r.Id).ToList();
+            // Project precise batches into display days only when data/language/date changes.
+            // No world scan or per-frame grouping; percentage refresh uses visible representatives.
+            ordered = ProgressDisplayGroups.Create(getRows(), now).OrderBy(g => g.Current.State)
+                .ThenBy(g => g.Current.Kind).ThenBy(g => g.Current.Name, StringComparer.CurrentCulture)
+                .ThenBy(g => g.Current.DisplayDate(now)?.Day ?? int.MaxValue)
+                .ThenBy(g => g.Current.DisplayDate(now)?.TimeOfDay ?? 0).ThenBy(g => g.Current.Id).ToList();
+            groupedDay = now / 1600;
             scroll = Math.Clamp(scroll, 0, Scrollbar.MaximumOffset);
         }
         if (!Scrollbar.Visible) draggingScroll = false;
@@ -143,8 +148,9 @@ internal sealed class ProgressPage : IClickableMenu
         // Include partially visible rows at both edges; hidden rows still aren't formatted.
         var range = layout.VisibleRange(ordered.Count, scroll);
         lineOffset = range.Offset;
-        lines = ordered.Skip(range.FirstIndex).Take(range.Count).Select(row =>
+        lines = ordered.Skip(range.FirstIndex).Take(range.Count).Select(group =>
         {
+            ProgressRow row = group.Current;
             if (!itemNames.TryGetValue(row.Id, out string? name))
             {
                 try
@@ -163,8 +169,10 @@ internal sealed class ProgressPage : IClickableMenu
                 itemNames[row.Id] = name;
             }
             string activity = row.Kind == ProductionKind.Aging ? text.Get("aging").ToString() : "";
-            string fullName = name + (activity.Length == 0 ? "" : "(" + activity + ")") + "(" + row.Count + ")";
-            string title = NameFitting.Fit(name, activity, row.Count, layout.NameWidth, value => Game1.smallFont.MeasureString(value).X);
+            string fullName = name + (activity.Length == 0 ? "" : "(" + activity + ")") + "(" + group.Quantity + ")";
+            string title = NameFitting.Fit(name, activity, group.Quantity, layout.NameWidth, value => Game1.smallFont.MeasureString(value).X);
+            if (group.CurrentCount < group.Count)
+                fullName += "\n" + text.Get("batch-count-help", new { current = group.CurrentCount, total = group.Count });
             double? fraction = row.Fraction(now);
             bool aging = row.Kind == ProductionKind.Aging;
             bool crop = row.Kind is ProductionKind.Crop or ProductionKind.Regrowth;
@@ -176,12 +184,12 @@ internal sealed class ProgressPage : IClickableMenu
             string from = row.Kind switch
             {
                 ProductionKind.Crop => text.Get(row.State == ProductionState.Ready ? "growth-complete" : "growing"),
-                ProductionKind.Regrowth => text.Get(row.State == ProductionState.Ready ? "growth-complete" : "regrowing"),
+                ProductionKind.Regrowth => text.Get(row.State == ProductionState.Ready ? "growth-complete" : "growing"),
                 ProductionKind.Tapper => text.Get(row.State == ProductionState.Ready ? "collection-complete" : "collecting"),
                 ProductionKind.Aging => Quality(row.FromQuality),
                 _ => text.Get(row.State == ProductionState.Ready ? "processing-complete" : "processing")
             };
-            string to = text.Get(row.State == ProductionState.Ready ? "completion-date-unknown" : "eta-unknown");
+            string to = row.State == ProductionState.Ready ? "" : text.Get("eta-unknown").ToString();
             if (row.DisplayDate(now) is CompletionDate finish)
             {
                 var date = new WorldDate(Game1.Date) { TotalDays = finish.Day };

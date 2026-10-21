@@ -1,15 +1,16 @@
 {
   "title": "Progress", "aging": "Aging", "done": "Done", "finish": "Done",
-  "withered": "Withered", "unknown": "In progress", "growing": "Growing", "regrowing": "Regrowing",
+  "withered": "Withered", "unknown": "In progress", "growing": "Growing",
   "processing": "Processing", "collecting": "Collecting", "normal": "Normal", "silver": "Silver",
   "gold": "Gold", "iridium": "Iridium", "empty": "No progress to display.",
   "initializing": "Reading progress...", "synchronizing": "Waiting for the host...",
   "host-required": "The host needs Production Progress installed.",
-  "eta-unknown": "Time unknown", "completion-date-unknown": "Date unknown",
+  "eta-unknown": "Time unknown",
   "growth-complete": "Growth complete", "processing-complete": "Processing complete", "collection-complete": "Collection complete",
   "mature": "Mature", "progress-target": "{{percent}}% {{target}}",
   "clock-date": "{{date}} {{time}}", "clock-night": "Night {{time}}",
   "date-short": "{{season}} {{day}}", "date-year": "Y{{year}} {{season}} {{day}}",
   "season-spring": "Spring", "season-summer": "Summer", "season-fall": "Fall", "season-winter": "Winter",
-  "unknown-item": "Unknown product", "small-window": "Not enough room. Please lower the UI scale."
+  "unknown-item": "Unknown product", "small-window": "Not enough room. Please lower the UI scale.",
+  "batch-count-help": "Current batch: {{current}} / In progress that day: {{total}}"
 }

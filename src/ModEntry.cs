@@ -36,6 +36,7 @@ public sealed class ModEntry : Mod
         { if (Context.IsMainPlayer) { dayTransition = true; tracker?.BeginOvernight(); } };
         helper.Events.GameLoop.DayStarted += (_, _) => { if (Context.IsMainPlayer) { dayTransition = false; tracker?.NewDay(); } };
         helper.Events.GameLoop.TimeChanged += (_, _) => { if (Context.IsMainPlayer) tracker?.SetClock(); };
+        helper.Events.GameLoop.UpdateTicking += (_, _) => { if (Context.IsWorldReady) menus.Value.BeforeUpdate(); };
         helper.Events.GameLoop.UpdateTicked += Update;
         helper.Events.GameLoop.Saving += (_, _) =>
         {
@@ -72,7 +73,8 @@ public sealed class ModEntry : Mod
             if (Context.IsWorldReady) menus.Value.MenuChanged(e.NewMenu);
             else menus.Value.Detach();
         };
-        helper.Events.Display.RenderedActiveMenu += (_, e) => { if (Context.IsWorldReady) menus.Value.Draw(e.SpriteBatch); };
+        helper.Events.Display.RenderingActiveMenu += (_, e) => { if (Context.IsWorldReady) menus.Value.BeforeDraw(e.SpriteBatch); };
+        helper.Events.Display.RenderedActiveMenu += (_, e) => { if (Context.IsWorldReady) menus.Value.AfterDraw(e.SpriteBatch); };
         helper.Events.Input.ButtonPressed += (_, e) => { if (Context.IsWorldReady) menus.Value.Input(e); };
         helper.Events.Multiplayer.ModMessageReceived += Message;
         helper.Events.Multiplayer.PeerConnected += (_, e) =>
@@ -82,6 +84,15 @@ public sealed class ModEntry : Mod
         };
         helper.ConsoleCommands.Add("production_progress_status", "Show production tracker counters without modifying the world.", (_, _) =>
             Monitor.Log(tracker == null ? "Client view; no local world scan." : $"Objects={tracker.TrackedObjects}; batches={tracker.Store.BatchCount}; pending={tracker.PendingChanges}; deadlines={tracker.ScheduledTasks}; initializing={tracker.Initializing}", LogLevel.Info));
+        helper.ConsoleCommands.Add("production_progress_inspect", "Host only: stand beside a missing machine, then run this to log nearby objects and cached progress. Read-only.", (_, _) =>
+        {
+            if (!Context.IsWorldReady || !Context.IsMainPlayer || tracker == null)
+            {
+                Monitor.Log("Run this command on the host after loading the farm, while standing beside the affected machine.", LogLevel.Info);
+                return;
+            }
+            tracker.InspectNearby(Game1.currentLocation, Game1.player.Tile);
+        });
     }
 
     private void SaveLoaded(object? sender, SaveLoadedEventArgs e)
@@ -155,7 +166,7 @@ public sealed class ModEntry : Mod
         else if (e.Type == "progress" && !Context.IsMainPlayer && tracker == null && Helper.Multiplayer.GetConnectedPlayer(e.FromPlayerID)?.IsHost == true)
         {
             try { remote.Apply(e.ReadAs<ChangePacket>()); }
-            catch (Exception ex) { Monitor.Log("Unable to read production snapshot: " + ex.Message, LogLevel.Warn); }
+            catch (Exception ex) { Monitor.Log("Unable to read production snapshot: " + ex, LogLevel.Warn); }
         }
     }
 

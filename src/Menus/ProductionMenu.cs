@@ -4,6 +4,7 @@ using Microsoft.Xna.Framework.Input;
 using StardewValley;
 using StardewValley.Menus;
 using MossHarbor.ProductionProgress.Core;
+using System.Runtime.CompilerServices;
 
 namespace MossHarbor.ProductionProgress.Menus;
 
@@ -16,10 +17,10 @@ internal sealed class ProductionMenu : IClickableMenu
     private readonly Action<IClickableMenu?> selectNative;
     private readonly Action<bool> adjacent;
     private readonly Action resized;
-    private readonly Action unavailable;
+    private readonly Action<string, string> unavailable;
 
     public ProductionMenu(GameMenu native, ProgressPage page, Action<IClickableMenu?> selectNative,
-        Action<bool> adjacent, Action resized, Action unavailable)
+        Action<bool> adjacent, Action resized, Action<string, string> unavailable)
         : base(native.xPositionOnScreen, native.yPositionOnScreen, native.width, native.height)
     {
         this.native = native; this.page = page; this.selectNative = selectNative;
@@ -27,12 +28,20 @@ internal sealed class ProductionMenu : IClickableMenu
         upperRightCloseButton = native.upperRightCloseButton;
     }
 
-    private void Forward(Action action)
+    private void Forward(Action action, [CallerMemberName] string operation = "")
     {
         int pageIndex = MenuOwnership.IndexOfReference(native.pages, page);
-        if (pageIndex < 0) { unavailable(); return; }
+        if (pageIndex < 0)
+        {
+            unavailable("forward-progress-page-missing", $"operation={operation}; Progress page was removed before forwarding.");
+            return;
+        }
         IClickableMenu? original = native.currentTab >= 0 && native.currentTab < native.pages.Count ? native.pages[native.currentTab] : null;
-        if (original == null) { unavailable(); return; }
+        if (original == null)
+        {
+            unavailable("forward-current-page-invalid", $"operation={operation}; currentTab={native.currentTab}; pageCount={native.pages.Count}");
+            return;
+        }
         IClickableMenu? after = page;
         bool lostOriginal = false;
         try
@@ -46,7 +55,11 @@ internal sealed class ProductionMenu : IClickableMenu
             if (restored >= 0) native.currentTab = restored;
             else lostOriginal = true;
         }
-        if (lostOriginal) { unavailable(); return; }
+        if (lostOriginal)
+        {
+            unavailable("forward-original-page-lost", $"operation={operation}; original={MenuIntegration.DescribePage(original)} was removed during forwarding.");
+            return;
+        }
         if (!ReferenceEquals(after, page)) selectNative(after);
     }
 
@@ -68,7 +81,7 @@ internal sealed class ProductionMenu : IClickableMenu
     }
     public override void receiveGamePadButton(Buttons button)
     {
-        // Also handle native repeat delivery, independent of SMAPI ButtonPressed suppression.
+        // LT/RT have one owner: the game's native press dispatch, not SMAPI ButtonPressed.
         if (button is Buttons.B or Buttons.Back or Buttons.Start) Close();
         else if (button == Buttons.LeftTrigger) adjacent(false);
         else if (button == Buttons.RightTrigger) adjacent(true);
@@ -85,6 +98,10 @@ internal sealed class ProductionMenu : IClickableMenu
     public override void snapToDefaultClickableComponent() => page.snapToDefaultClickableComponent();
     public override ClickableComponent getCurrentlySnappedComponent() => page.getCurrentlySnappedComponent();
     public override void setCurrentlySnappedComponentTo(int id) => page.setCurrentlySnappedComponentTo(id);
+    // Game1 routes snappy movement to the active root unless it is a GameMenu.
+    // The page owns the focus and components; this wrapper has neither.
+    public override void applyMovementKey(int direction) => page.applyMovementKey(direction);
+    public override void snapCursorToCurrentSnappedComponent() => page.snapCursorToCurrentSnappedComponent();
     public override void automaticSnapBehavior(int direction, int oldRegion, int oldId)
         => Forward(() => native.automaticSnapBehavior(direction, oldRegion, oldId));
 }

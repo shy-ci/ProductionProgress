@@ -41,8 +41,8 @@ public sealed class ProductionFeedbackTests
         Assert.True(layout.RowHeight >= layout.DetailOffset + detailHeight);
         Assert.True(layout.NameOffset + textHeight <= layout.RowHeight);
         Assert.True(layout.VisibleRows >= 4);
-        Assert.Equal(y + height - 16, layout.ListTop + layout.ListHeight);
-        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - 16);
+        Assert.Equal(y + height - 36, layout.ListTop + layout.ListHeight);
+        Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - 36);
     }
 
     [Fact]
@@ -52,10 +52,10 @@ public sealed class ProductionFeedbackTests
         var widePadding = ProgressLayout.Create(100, 40, 880, 680, 120, 96, 80, 32, 28);
         Assert.NotEqual(narrowPadding.Left, widePadding.Left);
         Assert.Equal(narrowPadding.ListHeight, widePadding.ListHeight);
-        Assert.Equal(704, widePadding.ListTop + widePadding.ListHeight);
+        Assert.Equal(684, widePadding.ListTop + widePadding.ListHeight);
         var scrollbar = ScrollMetrics.Create(widePadding.ListTop, widePadding.ListHeight, 20 * widePadding.RowHeight, 0);
         // Top arrow, gap, runner, gap, bottom arrow reach the same native bottom inset.
-        Assert.Equal(704, scrollbar.RunnerTop + scrollbar.RunnerHeight + ScrollMetrics.Gap + ScrollMetrics.ArrowHeight);
+        Assert.Equal(684, scrollbar.RunnerTop + scrollbar.RunnerHeight + ScrollMetrics.Gap + ScrollMetrics.ArrowHeight);
     }
 
     [Fact]
@@ -65,8 +65,8 @@ public sealed class ProductionFeedbackTests
         var range = layout.VisibleRange(20, 0);
         Assert.Equal(0, range.FirstIndex);
         Assert.Equal(0, range.Offset);
-        Assert.Equal(7, range.Count); // 568px viewport, 90px rows: six whole rows plus 28px.
-        Assert.Equal(28, layout.ListHeight - (range.Count - 1) * layout.RowHeight);
+        Assert.Equal(7, range.Count); // 548px viewport, 90px rows: six whole rows plus 8px.
+        Assert.Equal(8, layout.ListHeight - (range.Count - 1) * layout.RowHeight);
     }
 
     [Fact]
@@ -90,7 +90,7 @@ public sealed class ProductionFeedbackTests
     {
         var layout = ProgressLayout.Create(100, 40, 880, height, 120, 96, 56, textHeight, detailHeight);
         var range = layout.VisibleRange(100, int.MaxValue);
-        Assert.Equal(height + 40 - 16, layout.ListTop + layout.ListHeight);
+        Assert.Equal(height + 40 - 36, layout.ListTop + layout.ListHeight);
         Assert.Equal(100, range.FirstIndex + range.Count);
         Assert.Equal(layout.ListHeight, range.Count * layout.RowHeight - range.Offset);
         var reduced = layout.VisibleRange(2, int.MaxValue);

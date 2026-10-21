@@ -49,6 +49,10 @@ public sealed class BatchStore
 
     public List<ProgressRow> Snapshot() => groups.Values.Select(x => x.Copy()).ToList();
 
+    // Read-only diagnostics for one source. Never expose a mutable cached row.
+    public ProgressRow? GetSourceRow(long source)
+        => membership.TryGetValue(source, out BatchKey key) ? groups[key].Copy() : null;
+
     public ChangePacket TakeChanges(bool initializing)
     {
         var packet = new ChangePacket { Revision = Revision, Initializing = initializing,

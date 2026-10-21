@@ -5,8 +5,11 @@ namespace MossHarbor.ProductionProgress.Core;
 public static class NameFitting
 {
     public static string Fit(string name, string activity, int count, float width, Func<string, float> measure)
+        => Fit(name, activity, count.ToString(CultureInfo.InvariantCulture), width, measure);
+
+    public static string Fit(string name, string activity, string count, float width, Func<string, float> measure)
     {
-        string quantity = "(" + count.ToString(CultureInfo.InvariantCulture) + ")";
+        string quantity = "(" + count + ")";
         string suffix = (activity.Length == 0 ? "" : "(" + activity + ")") + quantity;
         // Activity and quantity have priority over the name. Very narrow layouts retain the quantity first.
         if (measure(suffix) > width) suffix = quantity;

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.Json;
 using Microsoft.Xna.Framework;
 using Netcode;
 using StardewModdingAPI;
@@ -95,6 +96,61 @@ internal sealed class ProductionTracker : IDisposable
 
     public void BeginOvernight() => overnight = true;
 
+    // Explicit console command only: inspect nearby objects without refreshing,
+    // registering, or mutating them. No periodic world scan or extra subscriptions.
+    public void InspectNearby(GameLocation location, Vector2 center)
+    {
+        var nearby = new List<(Vector2 Tile, SObject Object)>();
+        for (int y = (int)center.Y - 3; y <= (int)center.Y + 3; y++)
+            for (int x = (int)center.X - 3; x <= (int)center.X + 3; x++)
+            {
+                var tile = new Vector2(x, y);
+                if (location.objects.TryGetValue(tile, out SObject obj)) nearby.Add((tile, obj));
+            }
+        monitor.Log($"Production inspection: location={location.NameOrUniqueName}; day={Game1.Date.TotalDays}; time={Game1.timeOfDay}; "
+            + $"clock={Clock}; objects={TrackedObjects}; batches={Store.BatchCount}; pending={PendingChanges}; "
+            + $"initializing={Initializing}; timerNotifications={config.ObserveAllTimerChanges}; nearby={nearby.Count}; showing up to 12.", LogLevel.Info);
+        foreach (var entry in nearby.OrderBy(p => Vector2.DistanceSquared(p.Tile, center)).Take(12))
+        {
+            try
+            {
+                SObject obj = entry.Object;
+                sources.TryGetValue(new SourceKey(location, entry.Tile, false), out Source? source);
+                ProgressRow? row = source == null ? null : Store.GetSourceRow(source.Id);
+                MachineData? data = obj.GetMachineData();
+                MachineOutputRule? rule = data?.OutputRules?.FirstOrDefault(r => r.Id == obj.lastOutputRuleId.Value);
+                SObject? output = obj.heldObject.Value;
+                location.terrainFeatures.TryGetValue(entry.Tile, out TerrainFeature terrain);
+                Tree? tree = terrain as Tree;
+                monitor.Log("Production inspection: " + JsonSerializer.Serialize(new
+                {
+                    X = (int)entry.Tile.X, Y = (int)entry.Tile.Y,
+                    Object = obj.QualifiedItemId, Type = obj.GetType().FullName,
+                    Tapper = obj.IsTapper(), TapperTags = obj.GetContextTags().Where(t => t.StartsWith("tapper_", StringComparison.Ordinal)).ToArray(),
+                    Output = output?.QualifiedItemId, Flavor = output?.preservedParentSheetIndex.Value,
+                    Ready = obj.readyForHarvest.Value, Minutes = obj.MinutesUntilReady,
+                    HasMachineData = data != null, Incubator = data?.IsIncubator, OvernightOnly = data?.OnlyCompleteOvernight,
+                    LastRule = obj.lastOutputRuleId.Value, RuleDays = rule?.DaysUntilReady, RuleMinutes = rule?.MinutesUntilReady,
+                    TreeType = tree?.treeType.Value, TreeStage = tree?.growthStage.Value,
+                    TapItems = tree?.GetData()?.TapItems?.Select(t => new
+                        { t.ItemId, t.DaysUntilReady, Modifiers = t.DaysUntilReadyModifiers?.Count ?? 0, PreviousItems = t.PreviousItemId?.Count ?? 0 }).ToArray(),
+                    Tracked = source != null, SameObject = source != null && ReferenceEquals(source.Machine, obj),
+                    Refreshed = source?.Refreshed, Daily = source?.Daily, KnownTotal = source?.Total,
+                    Cached = row == null ? null : new
+                    {
+                        row.Id, row.Count, row.ItemId, Kind = row.Kind.ToString(), State = row.State.ToString(), Clock = row.Clock.ToString(),
+                        row.Total, row.Remaining, row.Due, row.ObservedDay, Fraction = row.Fraction(Clock), Finish = row.DisplayDate(Clock)
+                    }
+                }), LogLevel.Info);
+            }
+            catch (Exception ex)
+            {
+                monitor.Log($"Production inspection failed at {entry.Tile}: {ex}", LogLevel.Warn);
+            }
+        }
+        if (nearby.Count == 0) monitor.Log("No placed objects within 3 tiles. Stand beside the affected tapper and run the command again.", LogLevel.Info);
+    }
+
     public void QueueObject(GameLocation location, Vector2 tile) => worldChanges.Add(new(location, tile, false));
     public void QueueSoil(GameLocation location, Vector2 tile) => worldChanges.Add(new(location, tile, true));
 
@@ -137,7 +193,13 @@ internal sealed class ProductionTracker : IDisposable
             AddSoil(location, tile, pot.hoeDirt.Value, pot, newlyPlaced);
             return;
         }
-        if (obj is not Cask && !obj.IsTapper() && obj.GetMachineData() == null) return;
+        // An incubator keeps its input egg in heldObject; it isn't a collectable
+        // processed egg. Loose animal produce has no machine data in the first place.
+        if (obj is not Cask && !obj.IsTapper())
+        {
+            MachineData? machineData = obj.GetMachineData();
+            if (machineData == null || machineData.IsIncubator) return;
+        }
         var key = new SourceKey(location, tile, false);
         if (sources.TryGetValue(key, out Source? existing))
         {
@@ -219,7 +281,12 @@ internal sealed class ProductionTracker : IDisposable
                 if (!s.Removed)
                 {
                     try { Refresh(s); }
-                    catch (Exception ex) { Store.Remove(s.Id); WarnOnce(s.Key.ToString(), "Unable to read production state: " + ex.Message); }
+                    catch (Exception ex)
+                    {
+                        Store.Remove(s.Id);
+                        WarnOnce(s.Key.ToString(), $"Unable to read production state ({s.Machine?.QualifiedItemId ?? "crop"}, "
+                            + $"{s.Key.Location.NameOrUniqueName}, {s.Key.Tile}): {ex}");
+                    }
                 }
             }
             else if (due.TryTake(Clock, out Source elapsed)) elapsed.Mark();

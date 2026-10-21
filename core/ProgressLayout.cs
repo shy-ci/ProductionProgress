@@ -6,9 +6,10 @@ public sealed record ProgressLayout(int Left, int Width, int ListTop, int RowHei
 {
     public const int BarHeight = 14;
     public const int ColumnGap = 20;
-    // SDV 1.6.8 SocialPage.CreateComponents: down arrow is at bottom - 64,
-    // with height 48, leaving 16 UI pixels. This is independent of side padding.
-    public const int BottomInset = 16;
+    // SDV 1.6.8 drawDialogueBox draws the bottom 64px tile at menuBottom - 64.
+    // Maps/MenuTiles' bottom edge starts at tile y=28: content ends at bottom - 36.
+    // The scrollbar arrow's bottom - 16 is the OUTER edge, not a content boundary.
+    public const int BottomInset = 36;
     public int VisibleRows => ListHeight / RowHeight;
 
     public (int FirstIndex, int Count, int Offset) VisibleRange(int totalRows, int scrollOffset)
