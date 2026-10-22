@@ -103,11 +103,27 @@ def nexus(path, legacy=False):
         raise ValueError(f"Nexus 读取失败：网络或超时，路径 {path}。") from None
 
 
+def find_release(tag):
+    # The tag endpoint is for published releases. Drafts are visible through the
+    # release list to a token with push access, issued only after environment approval.
+    matches = []
+    page = 1
+    while True:
+        releases = github(f"releases?per_page=100&page={page}")
+        require(isinstance(releases, list), "GitHub 发布列表响应无效。")
+        matches.extend(item for item in releases if item.get("tag_name") == tag)
+        if len(releases) < 100:
+            break
+        page += 1
+    require(len(matches) == 1, "必须找到唯一的对应版本；请检查草稿标签及令牌的 Contents 写权限。")
+    return matches[0]
+
+
 def release_snapshot(tag, sha256):
     require(tag.startswith("v"), "请使用已存在的 vX.Y.Z 源码标签。")
     version = tag[1:]
     version_tuple(version)
-    release = github(f"releases/tags/{quote(tag, safe='')}")
+    release = find_release(tag)
     require(release["draft"] and not release["prerelease"], "必须选择尚未公开的正式 Release 草稿。")
     require(release["tag_name"] == tag, "Release 标签不一致。")
     notes = (release.get("body") or "").replace("\r\n", "\n").strip()

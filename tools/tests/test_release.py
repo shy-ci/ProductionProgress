@@ -48,8 +48,8 @@ class ReleaseTests(unittest.TestCase):
                                     "state": "uploaded", "size": len(self.data)}]}
 
     def github(self, path, payload=None, binary=False):
-        if path.startswith("releases/tags/"):
-            return self.release
+        if path == "releases?per_page=100&page=1":
+            return [self.release]
         if path.startswith("git/ref/tags/"):
             return {"ref": "refs/tags/v0.1.17", "object": {"type": "tag", "sha": "b" * 40}}
         if path.startswith("git/tags/"):
@@ -112,6 +112,20 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(snapshot["notes"], NOTES)
         self.assertEqual(snapshot["sha256"], self.sha)
         self.assertEqual(snapshot["source_commit"], "a" * 40)
+
+    def test_draft_lookup_follows_pages_without_published_tag_endpoint(self):
+        with patch.object(release, "github", side_effect=[
+            [{"tag_name": f"v0.0.{i}"} for i in range(100)], [self.release]
+        ]) as api:
+            self.assertEqual(release.find_release("v0.1.17"), self.release)
+            self.assertEqual([call.args[0] for call in api.call_args_list],
+                             ["releases?per_page=100&page=1", "releases?per_page=100&page=2"])
+
+    def test_invisible_or_ambiguous_draft_stops(self):
+        for response in [[], [self.release, self.release]]:
+            with self.subTest(response=response), patch.object(release, "github", return_value=response):
+                with self.assertRaisesRegex(ValueError, "唯一"):
+                    release.find_release("v0.1.17")
 
     def test_published_or_prerelease_does_not_republish(self):
         for key, value in [("draft", False), ("prerelease", True)]:
