@@ -109,8 +109,21 @@ internal sealed class ProgressPage : IClickableMenu
     }
 
     public override void releaseLeftClick(int x, int y) => draggingScroll = false;
+
+    public override void applyMovementKey(int direction)
+    {
+        // Native snappy input sends both the initial press and held repeats here.
+        if (direction == 0) Scroll(-1);
+        else if (direction == 2) Scroll(1);
+        else base.applyMovementKey(direction);
+    }
+
     public override void receiveGamePadButton(Buttons button)
     {
+        // In snappy mode the same press also arrives as a mapped movement key.
+        // Match receiveKeyPress's raw flags: Options.SnappyMenus additionally
+        // depends on mouse buttons and would allow double scrolling while clicked.
+        if (Game1.options.snappyMenus && Game1.options.gamepadControls) return;
         if (button is Buttons.DPadDown or Buttons.LeftThumbstickDown) Scroll(1);
         else if (button is Buttons.DPadUp or Buttons.LeftThumbstickUp) Scroll(-1);
     }

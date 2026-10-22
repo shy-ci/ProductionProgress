@@ -190,10 +190,6 @@ internal sealed class MenuIntegration
             if (!menu.readyToClose()) return;
             Open();
         }
-        else if (IsSelected && (e.Button is SButton.DPadDown or SButton.DPadUp))
-        {
-            helper.Input.Suppress(e.Button); page.Scroll(e.Button == SButton.DPadDown ? 1 : -1);
-        }
     }
 
     private void Open(bool playSound = true)
