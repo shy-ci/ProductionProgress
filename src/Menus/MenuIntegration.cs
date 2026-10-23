@@ -356,28 +356,43 @@ internal sealed class MenuIntegration
         index = menu!.getTabNumberFromName(component.name);
         actual = index >= 0 && index < menu.pages.Count ? menu.pages[index] : null;
         if (ReferenceEquals(actual, expected)) return true;
-        if (IsUltraSmoothMaterialization(component, expected, actual, previousIndex, index)) return true;
+        if (IsKnownAnchorReplacement(component, expected, actual, previousIndex, index)) return true;
         return RejectMapping(actual == null ? "anchor-mapping-invalid" : "anchor-page-changed",
             $"anchor={anchor}; name={LogText(component.name)}; previousIndex={previousIndex}; mappedIndex={index}; expected={DescribePage(expected)}; actual={DescribePage(actual)}");
     }
 
-    private bool IsUltraSmoothMaterialization(ClickableComponent component, IClickableMenu? expected,
+    private bool IsKnownAnchorReplacement(ClickableComponent component, IClickableMenu? expected,
         IClickableMenu? actual, int previousIndex, int index)
     {
-        // Optional interoperability with the 2.5.0 proxy lifecycle, not a binary/API
-        // dependency. Never invoke its private factory or disable its configuration.
+        // Optional known page lifecycles, not binary/API dependencies. Never invoke
+        // another mod's factory or accept arbitrary replacement menu classes.
         if (expected == null || actual == null || index != previousIndex) return false;
         Type type = expected.GetType();
-        if (type.FullName != "UltraSmooth.Optimizers.SmoothTabProxy" || type.Assembly.GetName().Name != "UltraSmooth") return false;
-        bool correctPage = component.name switch
+        bool lazyProxy = type.FullName == "UltraSmooth.Optimizers.SmoothTabProxy"
+            && type.Assembly.GetName().Name == "UltraSmooth";
+        bool knownReplacement = lazyProxy ? component.name switch
         {
-            "skills" => actual is SkillsPage,
+            "skills" => IsSupportedSkillsPage(actual),
             "social" => actual is SocialPage,
             _ => false
-        };
-        return correctPage && ReferenceEquals(UniqueTab(menu!, component.name), component)
+        } : component.name == "skills" && IsSupportedSkillsPage(expected) && IsSpaceCoreSkillsPage(actual);
+        // SpaceCore also rebuilds Skills on MenuChanged, including a return from
+        // our root wrapper to the same GameMenu. The stable tab/slot remains owned.
+        return knownReplacement && ReferenceEquals(UniqueTab(menu!, component.name), component)
             && MenuOwnership.IndexOfReference(menu!.pages, expected) < 0
             && menu.pages.Count(p => ReferenceEquals(p, actual)) == 1;
+    }
+
+    private static bool IsSupportedSkillsPage(IClickableMenu page)
+        => page is SkillsPage || IsSpaceCoreSkillsPage(page);
+
+    private static bool IsSpaceCoreSkillsPage(IClickableMenu page)
+    {
+        // SpaceCore's skill replacement derives directly from IClickableMenu.
+        // Identify the optional page without loading or referencing SpaceCore.
+        Type type = page.GetType();
+        return type.FullName == "SpaceCore.Interface.NewSkillsPage"
+            && type.Assembly.GetName().Name == "SpaceCore";
     }
 
     public void BeforeDraw(SpriteBatch b)

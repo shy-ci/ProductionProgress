@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../../src/Menus/MenuIntegration.cs" Link="MenuIntegration.cs" />
+    <Compile Include="../../src/Menus/ProductionMenu.cs" Link="ProductionMenu.cs" />
+    <ProjectReference Include="../../core/ProductionProgress.Core.csproj" />
+  </ItemGroup>
+</Project>
