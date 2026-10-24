@@ -13,8 +13,8 @@ namespace MossHarbor.ProductionProgress.Menus;
 
 internal sealed class MenuIntegration
 {
+    private const int DisplayIndex = 2;
     private const int PreferredTabId = 876410;
-    private int tabId;
     private readonly IModHelper helper;
     private readonly Func<IReadOnlyCollection<ProgressRow>> rows;
     private readonly Func<long> revision;
@@ -23,25 +23,20 @@ internal sealed class MenuIntegration
     private readonly IMonitor monitor;
     private GameMenu? menu;
     private ProgressPage? page;
-    private ProductionMenu? productionMenu;
-    private ClickableComponent? tab, skills, social, beforeTab;
+    private ClickableComponent? tab, beforeTab, afterTab;
+    private IClickableMenu? lastPage;
+    private int tabId;
     private readonly Dictionary<ClickableComponent, OwnedValue<Rectangle>> boundsChanges = new();
-    private OwnedValue<int>? beforeRight, socialLeft;
-    private IClickableMenu? skillsPage, socialPage, beforePage, lastPage;
-    private int skillsPageIndex, socialPageIndex, beforePageIndex;
-    private readonly TabEntryTransition<ClickableComponent> tabEntry = new();
-    private bool resumeAfterResize;
-    private int resumeTicks;
+    private OwnedValue<int>? beforeRight, afterLeft;
+    private bool resumeAfterResize, resumeAfterMap;
+    private bool consumedLeftTrigger, consumedRightTrigger;
     private ParsedItemData? icon;
     private GameMenu? hoverOwner;
     private string? suppressedHoverText;
-    private bool IsSelected => productionMenu != null && ReferenceEquals(Game1.activeClickableMenu, productionMenu);
-    private bool IsActive => ReferenceEquals(Game1.activeClickableMenu, menu) || IsSelected;
-    // Modal content blocks input and the foreground pass, but never the background
-    // pass. A collections letter is drawn inside its page, not as GameMenu's child.
+    private bool IsSelected => page != null && ReferenceEquals(CurrentPage(menu), page);
+    private bool IsActive => menu != null && ReferenceEquals(Game1.activeClickableMenu, menu);
     private bool CanInteractWithTabs => menu != null && IsActive && !menu.invisible
-        && menu.GetChildMenu() == null && productionMenu?.GetChildMenu() == null
-        && (IsSelected ? page : CurrentPage(menu))?.GetChildMenu() == null
+        && menu.GetChildMenu() == null && CurrentPage(menu)?.GetChildMenu() == null
         && CurrentPage(menu) is not CollectionsPage { letterviewerSubMenu: not null };
 
     public MenuIntegration(IModHelper helper, Func<IReadOnlyCollection<ProgressRow>> rows,
@@ -50,7 +45,6 @@ internal sealed class MenuIntegration
 
     public void MenuChanged(IClickableMenu? next)
     {
-        if (ReferenceEquals(next, productionMenu) && productionMenu != null) return;
         if (next is GameMenu gameMenu) Attach(gameMenu);
         else Detach();
     }
@@ -58,44 +52,33 @@ internal sealed class MenuIntegration
     public void Attach(GameMenu gameMenu)
     {
         if (ReferenceEquals(menu, gameMenu)) return;
-        bool resume = resumeAfterResize;
+        bool resume = resumeAfterResize, returnFromMap = resumeAfterMap;
         Detach();
-        skills = UniqueTab(gameMenu, "skills");
-        social = UniqueTab(gameMenu, "social");
-        if (skills == null || social == null) return;
-        skillsPage = ResolvePage(gameMenu, skills);
-        socialPage = ResolvePage(gameMenu, social);
-        if (skillsPage == null || socialPage == null || ReferenceEquals(skillsPage, socialPage)) return;
+        if (gameMenu.tabs.Count <= DisplayIndex) return;
+        beforeTab = gameMenu.tabs[DisplayIndex - 1];
+        afterTab = gameMenu.tabs[DisplayIndex];
+        Rectangle position = afterTab.bounds;
+        if (position.Width <= 0 || position.Height <= 0 || !SameRow(beforeTab.bounds, position)) return;
         menu = gameMenu;
-        Rectangle position = social.bounds;
-        if (position.Width <= 0 || position.Height <= 0) { Detach(); return; }
-        beforeTab = menu.tabs.Where(t => t.bounds.Right <= position.Left && SameRow(t.bounds, position))
-            .OrderByDescending(t => t.bounds.Right).FirstOrDefault();
-        beforePage = beforeTab == null ? null : ResolvePage(menu, beforeTab);
-        if (beforeTab == null || beforePage == null) { Detach(); return; }
-        skillsPageIndex = menu.getTabNumberFromName(skills.name);
-        socialPageIndex = menu.getTabNumberFromName(social.name);
-        beforePageIndex = menu.getTabNumberFromName(beforeTab.name);
-        int previousRight = beforeTab.bounds.Right;
-        int step = position.Width + Math.Max(0, position.Left - previousRight);
+        int step = position.Width + Math.Max(0, position.Left - beforeTab.bounds.Right);
         foreach (ClickableComponent item in menu.tabs)
         {
             if (item.bounds.X >= position.X && SameRow(item.bounds, position))
             {
                 Rectangle shifted = new(item.bounds.X + step, item.bounds.Y, item.bounds.Width, item.bounds.Height);
-                boundsChanges[item] = new OwnedValue<Rectangle>(item.bounds, shifted);
+                boundsChanges[item] = new(item.bounds, shifted);
                 item.bounds = shifted;
             }
         }
         tabId = MenuOwnership.AvailableId(Components(menu).Select(c => c.myID), PreferredTabId);
-        tab = new ClickableComponent(position, "MossHarbor.ProductionProgress", helper.Translation.Get("title"))
-        { myID = tabId, leftNeighborID = beforeTab.myID, rightNeighborID = social.myID, downNeighborID = -99998,
+        tab = new(position, "MossHarbor.ProductionProgress", helper.Translation.Get("title"))
+        { myID = tabId, leftNeighborID = beforeTab.myID, rightNeighborID = afterTab.myID, downNeighborID = -99998,
             tryDefaultIfNoDownNeighborExists = true, fullyImmutable = true };
-        page = new ProgressPage(menu, helper.Translation, rows, revision, status, opened);
-        menu.pages.Add(page); // native page numbers and the native tabs list remain unchanged
+        page = new(menu, helper.Translation, rows, revision, status, opened);
+        menu.pages.Add(page);
         icon = ItemRegistry.GetDataOrErrorItem("(O)262");
-        resumeAfterResize = resume; resumeTicks = 2;
-        lastPage = null; UpdateNavigation();
+        resumeAfterResize = resume; resumeAfterMap = returnFromMap;
+        UpdateNavigation();
     }
 
     public void Detach()
@@ -105,211 +88,166 @@ internal sealed class MenuIntegration
         {
             foreach (var pair in boundsChanges) pair.Key.bounds = pair.Value.Restore(pair.Key.bounds);
             if (beforeTab != null && beforeRight != null) beforeTab.rightNeighborID = beforeRight.Restore(beforeTab.rightNeighborID);
-            if (social != null && socialLeft != null) social.leftNeighborID = socialLeft.Restore(social.leftNeighborID);
+            if (afterTab != null && afterLeft != null) afterTab.leftNeighborID = afterLeft.Restore(afterTab.leftNeighborID);
             foreach (IClickableMenu p in menu.pages) p.allClickableComponents?.Remove(tab!);
-            IClickableMenu? selected = CurrentPage(menu);
             int ownIndex = page == null ? -1 : MenuOwnership.IndexOfReference(menu.pages, page);
             if (ownIndex >= 0)
             {
-                menu.pages.RemoveAt(ownIndex);
-                int next = selected == page ? (skillsPage == null ? -1 : MenuOwnership.IndexOfReference(menu.pages, skillsPage))
-                    : selected == null ? -1 : MenuOwnership.IndexOfReference(menu.pages, selected);
-                if (next >= 0) menu.currentTab = next;
+                IClickableMenu? current = CurrentPage(menu);
+                IClickableMenu? previous = PageAt(menu, menu.lastOpenedNonMapTab);
+                IClickableMenu? fallback = beforeTab == null ? null : ResolvePage(menu, beforeTab);
+                menu.pages.RemoveAll(p => ReferenceEquals(p, page));
+                menu.currentTab = RemainingIndex(current == page ? fallback : current);
+                menu.lastOpenedNonMapTab = RemainingIndex(previous == page ? fallback : previous);
             }
         }
+        if (menu != null && CurrentPage(menu) == null)
+        {
+            if (menu.pages.Count > 0) menu.currentTab = 0;
+            else if (IsActive) Game1.exitActiveMenu();
+        }
+        if (menu != null && PageAt(menu, menu.lastOpenedNonMapTab) == null)
+            menu.lastOpenedNonMapTab = menu.currentTab;
         page?.ReleaseResources();
-        menu = null; page = null; productionMenu = null; tab = null; skills = null; social = null; beforeTab = null; icon = null;
-        boundsChanges.Clear(); beforeRight = null; socialLeft = null;
-        skillsPage = null; socialPage = null; beforePage = null; lastPage = null; resumeAfterResize = false;
-        skillsPageIndex = socialPageIndex = beforePageIndex = -1;
-        tabEntry.Reset();
+        menu = null; page = null; tab = null; beforeTab = null; afterTab = null; lastPage = null; icon = null;
+        beforeRight = null; afterLeft = null; boundsChanges.Clear(); resumeAfterResize = false; resumeAfterMap = false;
     }
+
+    private int RemainingIndex(IClickableMenu? target)
+        => target == null ? 0 : Math.Max(0, MenuOwnership.IndexOfReference(menu!.pages, target));
 
     public void BeforeUpdate()
     {
-        tabEntry.Reset();
-        if (menu == null || beforeTab == null || social == null || IsSelected || !CanInteractWithTabs
-            || GameMenu.forcePreventClose
-            || !Game1.options.gamepadControls) return;
-        if (!ValidateMapping()) return;
-        // Match Game1.updateActiveMenu/ButtonCollection's digital edges, including
-        // any input already suppressed by other mods. Do not use SMAPI's 0.2 threshold.
         GamePadState state = Game1.input.GetGamePadState();
-        // Tab identity survives a lazy proxy being materialized during changeTab.
-        tabEntry.Capture(TabForPage(CurrentPage(menu)), beforeTab, social,
-            state.IsButtonDown(Buttons.RightTrigger) && Game1.oldPadState.IsButtonUp(Buttons.RightTrigger),
-            state.IsButtonDown(Buttons.LeftTrigger) && Game1.oldPadState.IsButtonUp(Buttons.LeftTrigger));
+        bool right = TriggerEdge(state, Buttons.RightTrigger, SButton.RightTrigger, ref consumedRightTrigger);
+        bool left = TriggerEdge(state, Buttons.LeftTrigger, SButton.LeftTrigger, ref consumedLeftTrigger);
+        if (menu == null || tab == null || beforeTab == null || afterTab == null || !IsActive || !ValidateMapping()) return;
+        if (!CanInteractWithTabs || !Game1.options.gamepadControls) return;
+        ClickableComponent? current = CurrentTabComponent();
+        bool entering = ReferenceEquals(current, beforeTab) && right || ReferenceEquals(current, afterTab) && left;
+        if (!IsSelected && !entering) return;
+        // Match the game's digital edges, not ButtonPressed's analog threshold.
+        // Consume the owned transition once, including a partial analog release.
+        if (right) { helper.Input.Suppress(SButton.RightTrigger); consumedRightTrigger = true; }
+        if (left) { helper.Input.Suppress(SButton.LeftTrigger); consumedLeftTrigger = true; }
+        if (right == left || GameMenu.forcePreventClose || !menu.readyToClose()) return;
+        if (IsSelected) ChangeToNative(right ? afterTab : beforeTab);
+        else Open();
+    }
+
+    private bool TriggerEdge(GamePadState state, Buttons native, SButton button, ref bool consumed)
+    {
+        if (consumed)
+        {
+            if (helper.Input.IsSuppressed(button)) return false;
+            // SMAPI can release its override below 0.2 while the game's native
+            // digital flag is still down. Keep ownership until that flag releases.
+            if (state.IsButtonDown(native)) { helper.Input.Suppress(button); return false; }
+            consumed = false;
+        }
+        return !helper.Input.IsSuppressed(button) && state.IsButtonDown(native) && Game1.oldPadState.IsButtonUp(native);
     }
 
     public void UpdateNavigation(bool tick = false)
     {
-        if (menu == null || tab == null || !IsActive) return;
-        if (!ValidateMapping()) return;
-        if (tick && tabEntry.Complete(IsSelected ? null : TabForPage(CurrentPage(menu))))
+        if (tick && resumeAfterMap)
         {
-            Open(false); return; // the native transition has already played its selection sound
+            resumeAfterMap = false;
+            if (Game1.activeClickableMenu is GameMenu next && next.currentTab != GameMenu.mapTab)
+            { Attach(next); Open(false); }
         }
-        if (tick && resumeAfterResize && --resumeTicks <= 0)
-        {
-            resumeAfterResize = false; Open(false); return;
-        }
-        IClickableMenu? current = IsSelected ? page : CurrentPage(menu);
-        if (current == null || ReferenceEquals(current, lastPage)) return;
+        if (menu == null || tab == null || !IsActive || !ValidateMapping()) return;
+        IClickableMenu? current = CurrentPage(menu);
+        if (current == null || ReferenceEquals(current, lastPage) && current.allClickableComponents?.Contains(tab) == true) return;
         lastPage = current;
-        current.allClickableComponents ??= new List<ClickableComponent>();
+        current.allClickableComponents ??= new();
         if (Components(menu).Any(c => !ReferenceEquals(c, tab) && c.myID == tabId))
-        {
-            tabId = MenuOwnership.AvailableId(Components(menu).Select(c => c.myID), PreferredTabId);
-            tab.myID = tabId;
-        }
+        { tabId = MenuOwnership.AvailableId(Components(menu).Select(c => c.myID), PreferredTabId); tab.myID = tabId; }
         if (!current.allClickableComponents.Contains(tab)) current.allClickableComponents.Add(tab);
-        if (beforeRight == null && beforeTab!.rightNeighborID == social!.myID)
+        if (beforeRight == null && beforeTab!.rightNeighborID == afterTab!.myID)
         { beforeRight = new(beforeTab.rightNeighborID, tabId); beforeTab.rightNeighborID = tabId; }
         else if (beforeRight?.TryUpdate(beforeTab!.rightNeighborID, tabId) == true) beforeTab.rightNeighborID = tabId;
-        if (socialLeft == null && social!.leftNeighborID == beforeTab!.myID)
-        { socialLeft = new(social.leftNeighborID, tabId); social.leftNeighborID = tabId; }
-        else if (socialLeft?.TryUpdate(social!.leftNeighborID, tabId) == true) social.leftNeighborID = tabId;
+        if (afterLeft == null && afterTab!.leftNeighborID == beforeTab!.myID)
+        { afterLeft = new(afterTab.leftNeighborID, tabId); afterTab.leftNeighborID = tabId; }
+        else if (afterLeft?.TryUpdate(afterTab!.leftNeighborID, tabId) == true) afterTab.leftNeighborID = tabId;
     }
 
     public void Input(ButtonPressedEventArgs e)
     {
-        if (menu == null || page == null || tab == null || !CanInteractWithTabs || GameMenu.forcePreventClose) return;
-        if (helper.Input.IsSuppressed(e.Button)) return;
-        if (!ValidateMapping()) return;
+        if (menu == null || page == null || tab == null || !IsActive || helper.Input.IsSuppressed(e.Button)) return;
+        // MapPage can reconstruct GameMenu from lastOpenedNonMapTab. Avoid passing
+        // our appended index to that native constructor, then restore our page.
+        if ((e.Button is SButton.MouseLeft or SButton.ControllerA) && !GameMenu.forcePreventClose
+            && menu.GetChildMenu() == null && menu.readyToClose() && menu.currentTab == GameMenu.mapTab
+            && menu.lastOpenedNonMapTab == MenuOwnership.IndexOfReference(menu.pages, page))
+        {
+            resumeAfterMap = true;
+            menu.lastOpenedNonMapTab = 0;
+        }
+        if (!CanInteractWithTabs || GameMenu.forcePreventClose || !ValidateMapping()) return;
         Vector2 point = e.Cursor.ScreenPixels;
         bool cursorOnTab = tab.bounds.Contains((int)point.X, (int)point.Y);
-        IClickableMenu? focusedPage = IsSelected ? page : CurrentPage(menu);
-        // In snappy mode the focused component is authoritative, not the mouse
-        // position sampled before the game's controller cursor movement.
-        bool select = !menu.invisible && ((e.Button == SButton.MouseLeft && cursorOnTab)
-            || (e.Button == SButton.ControllerA && (Game1.options.SnappyMenus
-                ? ReferenceEquals(focusedPage?.getCurrentlySnappedComponent(), tab) : cursorOnTab)));
-        if (select)
-        {
-            helper.Input.Suppress(e.Button);
-            if (!menu.readyToClose()) return;
-            Open();
-        }
+        bool select = e.Button == SButton.MouseLeft && cursorOnTab
+            || e.Button == SButton.ControllerA && (Game1.options.SnappyMenus
+                ? ReferenceEquals(CurrentPage(menu)?.getCurrentlySnappedComponent(), tab) : cursorOnTab);
+        if (select) { helper.Input.Suppress(e.Button); if (menu.readyToClose()) Open(); }
     }
 
     private void Open(bool playSound = true)
     {
-        if (menu == null || page == null || tab == null || IsSelected || !CanInteractWithTabs || GameMenu.forcePreventClose) return;
-        if (!ValidateMapping()) return;
-        // Keep a valid native index outside the bounded draw/input forwarding calls.
-        if (!ChangeToPage(skillsPage, false)) return;
-        productionMenu = new ProductionMenu(menu, page, SelectNative,
-            right => SelectNative(right ? socialPage : beforePage), Resize, Unavailable);
-        Game1.activeClickableMenu = productionMenu;
-        page.Open(); page.populateClickableComponentList(); menu.AddTabsToClickableComponents(page);
-        lastPage = null; UpdateNavigation();
-        page.currentlySnappedComponent = tab;
+        if (menu == null || page == null || tab == null || IsSelected || !CanInteractWithTabs
+            || GameMenu.forcePreventClose || !menu.readyToClose() || !ValidateMapping()) return;
+        // Only our own page index is stored in native selection. No neighbouring
+        // page is instantiated, selected, or required to have a particular class.
+        int index = MenuOwnership.IndexOfReference(menu.pages, page);
+        menu.currentTab = index; menu.lastOpenedNonMapTab = index;
+        menu.initializeUpperRightCloseButton(); menu.invisible = false;
+        // With a native GameMenu root, populateClickableComponentList adds native tabs.
+        page.Open(); page.populateClickableComponentList();
+        lastPage = null; UpdateNavigation(); page.currentlySnappedComponent = tab;
         if (Game1.options.SnappyMenus) page.snapCursorToCurrentSnappedComponent();
         if (playSound) Game1.playSound("smallSelect");
     }
 
-    private void SelectNative(IClickableMenu? target)
+    private void ChangeToNative(ClickableComponent target)
     {
         if (menu == null) return;
-        if (!ChangeToPage(target, true)) return;
-        productionMenu = null;
-        Game1.activeClickableMenu = menu;
+        int index = MenuOwnership.IndexOfReference(menu.tabs, target);
+        if (index < 0 || ResolvePage(menu, target) == null || ReferenceEquals(ResolvePage(menu, target), page)
+            || menu.tabs.Count(t => t.name == target.name) != 1)
+        { Unavailable("target-mapping-invalid", $"tab={LogText(target.name)}; tabIndex={index}"); return; }
+        // Keep the native hook: lazy menu providers activate their own target here.
+        menu.changeTab(index, true);
         lastPage = null; UpdateNavigation();
     }
 
-    private void Resize()
+    public void BeforeWindowResize()
     {
-        if (menu == null) return;
-        // SetWindowSize will now rebuild its native menu normally. Let other mods observe
-        // MenuChanged and adjust the replacement before trying to reopen our page.
-        productionMenu = null; resumeAfterResize = true; resumeTicks = 2;
-        Game1.activeClickableMenu = menu;
+        if (menu == null || !IsActive || !IsSelected) return;
+        resumeAfterResize = true;
+        // Game1 rebuilds GameMenu using currentTab before custom pages are appended.
+        // This is a numeric fallback only: don't activate or inspect its page type.
+        menu.currentTab = 0;
+        menu.lastOpenedNonMapTab = 0;
     }
 
-    private bool ChangeToPage(IClickableMenu? target, bool sound)
+    public void AfterWindowResize()
     {
-        if (menu == null || target == null) return false;
-        // changeTab takes a tab-list position, then maps its name to a page internally.
-        // The tab position and the page position are not interchangeable.
-        int pagePosition = MenuOwnership.IndexOfReference(menu.pages, target);
-        if (pagePosition < 0) return false;
-        ClickableComponent? targetTab = TabForPage(target);
-        if (targetTab == null) return false;
-        int tabPosition = MenuOwnership.IndexOfReference(menu.tabs, targetTab);
-        menu.changeTab(tabPosition, sound);
-        // Ultra Smooth can replace target's proxy before native changeTab runs.
-        // Validate that replacement, then check the same tab's current page.
-        return ValidateMapping() && ReferenceEquals(CurrentPage(menu), ResolvePage(menu, targetTab));
+        if (!resumeAfterResize) return;
+        if (Game1.activeClickableMenu is not GameMenu next) { Detach(); return; }
+        Attach(next); resumeAfterResize = false; Open(false);
     }
 
-    private ClickableComponent? TabForPage(IClickableMenu? target)
-    {
-        if (menu == null || target == null) return null;
-        ClickableComponent? match = null;
-        foreach (ClickableComponent candidate in menu.tabs)
-        {
-            if (!ReferenceEquals(ResolvePage(menu, candidate), target)) continue;
-            if (match != null) return null;
-            match = candidate;
-        }
-        return match;
-    }
-
-    private void Unavailable(string reason, string detail)
-    {
-        bool selected = IsSelected;
-        // Capture before Detach restores our bounds and removes the page. This runs
-        // only on failure, once for this attachment, not on every draw/update.
-        monitor.Log($"Production menu entry detached. Reason={reason}; {detail}\n{DescribeMenuState()}\nPlease include this full SMAPI log when reporting the missing Progress tab.", LogLevel.Warn);
-        Detach();
-        if (selected) Game1.exitActiveMenu();
-    }
-
-    internal static string DescribePage(IClickableMenu? value)
-    {
-        if (value == null) return "null";
-        Type type = value.GetType();
-        var assembly = type.Assembly.GetName();
-        return $"{LogText(type.FullName)}#{RuntimeHelpers.GetHashCode(value):x} [{LogText(assembly.Name)} {assembly.Version}]";
-    }
-
-    private static string LogText(string? value)
-    {
-        string text = (value ?? "null").Replace('\r', ' ').Replace('\n', ' ');
-        return text.Length <= 160 ? text : text[..160] + "...";
-    }
-
-    private string DescribeMenuState()
-    {
-        if (menu == null) return "Menu state: no attached GameMenu.";
-        const int limit = 24;
-        string tabs = string.Join("; ", menu.tabs.Take(limit).Select((t, i) =>
-            $"{i}:{LogText(t.name)} id={t.myID} bounds={t.bounds}"
-            + (boundsChanges.TryGetValue(t, out var owned) && !owned.Owns(t.bounds)
-                ? $" (last-applied={owned.Applied}, before-attach={owned.Original})" : "")));
-        string pages = string.Join("; ", menu.pages.Take(limit).Select((p, i) => $"{i}:{DescribePage(p)}"));
-        return $"Menu state: root={DescribePage(Game1.activeClickableMenu)}; native={DescribePage(menu)}; currentTab={menu.currentTab}; progressSelected={IsSelected}; entryBounds={tab?.bounds}\n"
-            + $"Expected pages: progress={DescribePage(page)}; before={DescribePage(beforePage)}; skills={DescribePage(skillsPage)}; social={DescribePage(socialPage)}\n"
-            + $"Tabs ({menu.tabs.Count}, first {limit} at most): {tabs}\nPages ({menu.pages.Count}, first {limit} at most): {pages}";
-    }
-
-    private bool RejectMapping(string reason, string detail)
-    {
-        Unavailable(reason, detail);
-        return false;
-    }
-
-    private static ClickableComponent? UniqueTab(GameMenu menu, string name)
-    {
-        var matches = menu.tabs.Where(t => t.name == name).Take(2).ToArray();
-        return matches.Length == 1 ? matches[0] : null;
-    }
-    private static IClickableMenu? CurrentPage(GameMenu menu)
-        => menu.currentTab >= 0 && menu.currentTab < menu.pages.Count ? menu.pages[menu.currentTab] : null;
+    private static IClickableMenu? PageAt(GameMenu? menu, int index)
+        => menu != null && index >= 0 && index < menu.pages.Count ? menu.pages[index] : null;
+    private static IClickableMenu? CurrentPage(GameMenu? menu) => PageAt(menu, menu?.currentTab ?? -1);
     private static IClickableMenu? ResolvePage(GameMenu menu, ClickableComponent tab)
+        => PageAt(menu, menu.getTabNumberFromName(tab.name));
+    private ClickableComponent? CurrentTabComponent()
     {
-        int index = menu.getTabNumberFromName(tab.name);
-        return index >= 0 && index < menu.pages.Count ? menu.pages[index] : null;
+        if (menu == null) return null;
+        var matches = menu.tabs.Where(t => menu.getTabNumberFromName(t.name) == menu.currentTab).Take(2).ToArray();
+        return matches.Length == 1 ? matches[0] : null;
     }
     private static IEnumerable<ClickableComponent> Components(GameMenu menu)
         => menu.tabs.Concat(menu.pages.SelectMany(p => p.allClickableComponents ?? Enumerable.Empty<ClickableComponent>()));
@@ -317,82 +255,49 @@ internal sealed class MenuIntegration
 
     private bool ValidateMapping()
     {
-        if (menu == null || page == null || tab == null || skills == null || social == null || beforeTab == null) return false;
-        if (MenuOwnership.IndexOfReference(menu.pages, page) < 0)
-            return RejectMapping("progress-page-missing", "The attached Progress page is no longer in GameMenu.pages.");
-        // Check tab membership first, preserving the original protection order.
-        if (MenuOwnership.IndexOfReference(menu.tabs, skills) < 0)
-            return RejectMapping("anchor-tab-missing", $"anchor=skills; name={LogText(skills.name)}");
-        if (MenuOwnership.IndexOfReference(menu.tabs, social) < 0)
-            return RejectMapping("anchor-tab-missing", $"anchor=social; name={LogText(social.name)}");
-        if (MenuOwnership.IndexOfReference(menu.tabs, beforeTab) < 0)
-            return RejectMapping("anchor-tab-missing", $"anchor=before; name={LogText(beforeTab.name)}");
-        if (!ValidateAnchor("before", beforeTab, beforePage, beforePageIndex, out var nextBefore, out int beforeIndex)
-            || !ValidateAnchor("skills", skills, skillsPage, skillsPageIndex, out var nextSkills, out int skillsIndex)
-            || !ValidateAnchor("social", social, socialPage, socialPageIndex, out var nextSocial, out int socialIndex)) return false;
+        if (menu == null || page == null || tab == null || beforeTab == null || afterTab == null) return false;
+        if (menu.pages.Count(p => ReferenceEquals(p, page)) != 1)
+            return RejectMapping("progress-page-invalid", "The owned Progress page is missing or duplicated.");
+        if (!menu.tabs.Contains(beforeTab) || !menu.tabs.Contains(afterTab))
+            return RejectMapping("anchor-tab-missing", "A neighbouring tab component was removed.");
+        if (menu.tabs.Count <= DisplayIndex || !ReferenceEquals(menu.tabs[DisplayIndex - 1], beforeTab)
+            || !ReferenceEquals(menu.tabs[DisplayIndex], afterTab))
+            return RejectMapping("tab-order-changed", "The native tab order changed after reserving display slot 2.");
+        int ownIndex = MenuOwnership.IndexOfReference(menu.pages, page);
+        if (menu.tabs.Any(t => menu.getTabNumberFromName(t.name) == ownIndex))
+            return RejectMapping("progress-mapping-collision", "A native tab now maps to the owned Progress page.");
+        if (CurrentPage(menu) == null)
+            return RejectMapping("current-page-invalid", $"currentTab={menu.currentTab}; pages={menu.pages.Count}");
         foreach (ClickableComponent other in menu.tabs)
-        {
             if (other.bounds.Intersects(tab.bounds))
-                return RejectMapping("tab-overlap", $"tab={LogText(other.name)}; otherBounds={other.bounds}; entryBounds={tab.bounds}");
-        }
-        // Commit refreshed anchors only after every mapping and layout check passes.
-        if (!ReferenceEquals(beforePage, nextBefore) || !ReferenceEquals(skillsPage, nextSkills)
-            || !ReferenceEquals(socialPage, nextSocial))
-        {
-            if (!ReferenceEquals(beforePage, nextBefore)) beforePage?.allClickableComponents?.Remove(tab);
-            if (!ReferenceEquals(skillsPage, nextSkills)) skillsPage?.allClickableComponents?.Remove(tab);
-            if (!ReferenceEquals(socialPage, nextSocial)) socialPage?.allClickableComponents?.Remove(tab);
-            lastPage = null;
-        }
-        beforePage = nextBefore; beforePageIndex = beforeIndex;
-        skillsPage = nextSkills; skillsPageIndex = skillsIndex;
-        socialPage = nextSocial; socialPageIndex = socialIndex;
+                return RejectMapping("tab-overlap", $"tab={LogText(other.name)}; bounds={other.bounds}; entryBounds={tab.bounds}");
         return true;
     }
 
-    private bool ValidateAnchor(string anchor, ClickableComponent component, IClickableMenu? expected,
-        int previousIndex, out IClickableMenu? actual, out int index)
+    private bool RejectMapping(string reason, string detail) { Unavailable(reason, detail); return false; }
+    private void Unavailable(string reason, string detail)
     {
-        index = menu!.getTabNumberFromName(component.name);
-        actual = index >= 0 && index < menu.pages.Count ? menu.pages[index] : null;
-        if (ReferenceEquals(actual, expected)) return true;
-        if (IsKnownAnchorReplacement(component, expected, actual, previousIndex, index)) return true;
-        return RejectMapping(actual == null ? "anchor-mapping-invalid" : "anchor-page-changed",
-            $"anchor={anchor}; name={LogText(component.name)}; previousIndex={previousIndex}; mappedIndex={index}; expected={DescribePage(expected)}; actual={DescribePage(actual)}");
+        monitor.Log($"Production menu entry detached. Reason={reason}; {detail}\n{DescribeMenuState()}\nPlease include this full SMAPI log when reporting the missing Progress tab.", LogLevel.Warn);
+        Detach();
     }
-
-    private bool IsKnownAnchorReplacement(ClickableComponent component, IClickableMenu? expected,
-        IClickableMenu? actual, int previousIndex, int index)
+    internal static string DescribePage(IClickableMenu? value)
     {
-        // Optional known page lifecycles, not binary/API dependencies. Never invoke
-        // another mod's factory or accept arbitrary replacement menu classes.
-        if (expected == null || actual == null || index != previousIndex) return false;
-        Type type = expected.GetType();
-        bool lazyProxy = type.FullName == "UltraSmooth.Optimizers.SmoothTabProxy"
-            && type.Assembly.GetName().Name == "UltraSmooth";
-        bool knownReplacement = lazyProxy ? component.name switch
-        {
-            "skills" => IsSupportedSkillsPage(actual),
-            "social" => actual is SocialPage,
-            _ => false
-        } : component.name == "skills" && IsSupportedSkillsPage(expected) && IsSpaceCoreSkillsPage(actual);
-        // SpaceCore also rebuilds Skills on MenuChanged, including a return from
-        // our root wrapper to the same GameMenu. The stable tab/slot remains owned.
-        return knownReplacement && ReferenceEquals(UniqueTab(menu!, component.name), component)
-            && MenuOwnership.IndexOfReference(menu!.pages, expected) < 0
-            && menu.pages.Count(p => ReferenceEquals(p, actual)) == 1;
+        if (value == null) return "null";
+        Type type = value.GetType(); var assembly = type.Assembly.GetName();
+        return $"{LogText(type.FullName)}#{RuntimeHelpers.GetHashCode(value):x} [{LogText(assembly.Name)} {assembly.Version}]";
     }
-
-    private static bool IsSupportedSkillsPage(IClickableMenu page)
-        => page is SkillsPage || IsSpaceCoreSkillsPage(page);
-
-    private static bool IsSpaceCoreSkillsPage(IClickableMenu page)
+    private static string LogText(string? value)
     {
-        // SpaceCore's skill replacement derives directly from IClickableMenu.
-        // Identify the optional page without loading or referencing SpaceCore.
-        Type type = page.GetType();
-        return type.FullName == "SpaceCore.Interface.NewSkillsPage"
-            && type.Assembly.GetName().Name == "SpaceCore";
+        string text = (value ?? "null").Replace('\r', ' ').Replace('\n', ' ');
+        return text.Length <= 160 ? text : text[..160] + "...";
+    }
+    private string DescribeMenuState()
+    {
+        if (menu == null) return "Menu state: no attached GameMenu.";
+        const int limit = 24;
+        return $"Menu state: root={DescribePage(Game1.activeClickableMenu)}; currentTab={menu.currentTab}; progressSelected={IsSelected}; displayIndex={DisplayIndex}; ownPageIndex={(page == null ? -1 : MenuOwnership.IndexOfReference(menu.pages, page))}; entryBounds={tab?.bounds}\n"
+            + $"Tabs ({menu.tabs.Count}, first {limit} at most): " + string.Join("; ", menu.tabs.Take(limit).Select((t,i) => $"{i}:{LogText(t.name)} id={t.myID} pageIndex={menu.getTabNumberFromName(t.name)} bounds={t.bounds}"))
+            + $"\nPages ({menu.pages.Count}, first {limit} at most): " + string.Join("; ", menu.pages.Take(limit).Select((p,i) => $"{i}:{DescribePage(p)}"));
     }
 
     public void BeforeDraw(SpriteBatch b)

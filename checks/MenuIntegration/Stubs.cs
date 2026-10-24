@@ -15,11 +15,11 @@ namespace Microsoft.Xna.Framework.Input {
  public record struct GamePadState(bool Left=false,bool Right=false) { public bool IsButtonDown(Buttons button)=>button==Buttons.LeftTrigger?Left:button==Buttons.RightTrigger&&Right; public bool IsButtonUp(Buttons button)=>!IsButtonDown(button); }
 }
 namespace StardewModdingAPI {
- public enum SButton { MouseLeft, ControllerA, DPadDown, DPadUp }
+ public enum SButton { MouseLeft, ControllerA, DPadDown, DPadUp, LeftTrigger, RightTrigger }
  public enum LogLevel { Warn, Debug }
  public interface IMonitor { void Log(string text,LogLevel level); }
  public class Cursor { public Microsoft.Xna.Framework.Vector2 ScreenPixels {get;set;} }
- public class InputHelper { public bool Suppressed; public Cursor Cursor=new(); public bool IsSuppressed(SButton b)=>Suppressed; public void Suppress(SButton b)=>Suppressed=true; public Cursor GetCursorPosition()=>Cursor; }
+ public class InputHelper { public readonly HashSet<SButton> Suppressed=new(); public Cursor Cursor=new(); public bool IsSuppressed(SButton b)=>Suppressed.Contains(b); public void Suppress(SButton b)=>Suppressed.Add(b); public Cursor GetCursorPosition()=>Cursor; }
  public class TranslationHelper { public string Get(string key)=>"Progress"; }
  public interface IModHelper { InputHelper Input {get;} TranslationHelper Translation {get;} }
 }
@@ -48,13 +48,35 @@ namespace StardewValley.Menus {
  public virtual void receiveKeyPress(Microsoft.Xna.Framework.Input.Keys key){} public virtual void receiveGamePadButton(Microsoft.Xna.Framework.Input.Buttons button){}
  public virtual void performHoverAction(int x,int y){} public virtual void gameWindowSizeChanged(Rectangle oldBounds,Rectangle newBounds){}
  public virtual void snapToDefaultClickableComponent(){} public virtual void setCurrentlySnappedComponentTo(int id){} public virtual void applyMovementKey(int direction){}
- public virtual void automaticSnapBehavior(int direction,int oldRegion,int oldId){} public void exitThisMenu()=>StardewValley.Game1.exitActiveMenu(); public IClickableMenu? Child; public List<ClickableComponent>? allClickableComponents=new(); public ClickableComponent? currentlySnappedComponent; public IClickableMenu? GetChildMenu()=>Child; public virtual bool readyToClose()=>true; public virtual ClickableComponent getCurrentlySnappedComponent()=>currentlySnappedComponent!; public virtual void snapCursorToCurrentSnappedComponent(){} public static void drawHoverText(SpriteBatch b,string text,object font)=>b.Events.Add("tooltip:"+text); }
+ public virtual void automaticSnapBehavior(int direction,int oldRegion,int oldId){} public void exitThisMenu()=>StardewValley.Game1.exitActiveMenu(); public IClickableMenu? Child; public List<ClickableComponent>? allClickableComponents=new(); public ClickableComponent? currentlySnappedComponent; public IClickableMenu? GetChildMenu()=>Child; public bool CanClose=true; public virtual bool readyToClose()=>CanClose; public virtual ClickableComponent getCurrentlySnappedComponent()=>currentlySnappedComponent!; public virtual void snapCursorToCurrentSnappedComponent(){} public static void drawHoverText(SpriteBatch b,string text,object font)=>b.Events.Add("tooltip:"+text); }
  public class SkillsPage:IClickableMenu {} public class SocialPage:IClickableMenu {}
  public class CollectionsPage:IClickableMenu { public IClickableMenu? letterviewerSubMenu; }
- public class GameMenu:IClickableMenu { public Action? ForwardAction; public override void draw(SpriteBatch b)=>ForwardAction?.Invoke(); public override void update(GameTime t)=>ForwardAction?.Invoke(); public Dictionary<string,int> Mappings=new(); public List<IClickableMenu> pages=new(); public List<ClickableComponent> tabs=new(); public int currentTab; public bool invisible; public static bool forcePreventClose; public string hoverText=""; public int getTabNumberFromName(string s)=>Mappings.TryGetValue(s,out int mapped)?mapped:s switch {"skills"=>0,"social"=>1,"collections"=>2,_=>-1}; public Action<GameMenu,int>? BeforeChangeTab; public void changeTab(int i,bool sound){BeforeChangeTab?.Invoke(this,i);currentTab=getTabNumberFromName(tabs[i].name);} public void AddTabsToClickableComponents(IClickableMenu page)=>page.allClickableComponents!.AddRange(tabs); public void drawMouse(SpriteBatch b,bool always)=>b.Events.Add("mouse"); }
+ public class GameMenu:IClickableMenu {
+ public Dictionary<string,int> Mappings=new(); public List<IClickableMenu> pages=new(); public List<ClickableComponent> tabs=new();
+ public int currentTab,lastOpenedNonMapTab; public bool invisible; public static bool forcePreventClose; public static int mapTab=3;
+ public string hoverText=""; public Action<GameMenu,int>? BeforeChangeTab; public int NativeChanges,CloseButtonInitializations;
+ public int getTabNumberFromName(string s)=>Mappings.TryGetValue(s,out int i)?i:-1;
+ public void changeTab(int i,bool sound) { if(forcePreventClose||!readyToClose())return; if(i<0||i>=tabs.Count)throw new Exception("Native tab index out of range");BeforeChangeTab?.Invoke(this,i);NativeChanges++;int next=getTabNumberFromName(tabs[i].name);if(next==mapTab)lastOpenedNonMapTab=currentTab;currentTab=next;invisible=next==mapTab; }
+ public override bool readyToClose()=>pages[currentTab].readyToClose();
+ public void initializeUpperRightCloseButton(){CloseButtonInitializations++;upperRightCloseButton=new(new(1000,0,64,64),"close","");}
+ public override void draw(SpriteBatch b) {b.Events.Add("native-frame");b.Events.Add("native-tabs");pages[currentTab].draw(b);drawMouse(b,true);}
+ public override void update(GameTime t)=>pages[currentTab].update(t);
+ public override void receiveKeyPress(Microsoft.Xna.Framework.Input.Keys k) {if(k==Microsoft.Xna.Framework.Input.Keys.Escape&&readyToClose())Game1.exitActiveMenu();else pages[currentTab].receiveKeyPress(k);}
+ public override void receiveLeftClick(int x,int y,bool playSound=true){if(upperRightCloseButton?.containsPoint(x,y)==true&&readyToClose())Game1.exitActiveMenu();else pages[currentTab].receiveLeftClick(x,y,playSound);}
+ public void AddTabsToClickableComponents(IClickableMenu page)=>page.allClickableComponents!.AddRange(tabs);
+ public void drawMouse(SpriteBatch b,bool always)=>b.Events.Add("mouse");
+ }
+
 }
 namespace MossHarbor.ProductionProgress.Menus {
  using StardewValley.Menus;
- public class ProgressPage:IClickableMenu { public ProgressPage(GameMenu m,StardewModdingAPI.TranslationHelper t,Func<IReadOnlyCollection<ProgressRow>> rows,Func<long> rev,Func<string?> status,Action opened){} public void ReleaseResources(){} public void Open(){} public void Scroll(int n){} public void populateClickableComponentList(){} }
+ public class ProgressPage:IClickableMenu {
+ private readonly Action opened; public int Opens,Draws,Updates;public bool Released;
+ public ProgressPage(GameMenu m,StardewModdingAPI.TranslationHelper t,Func<IReadOnlyCollection<ProgressRow>> rows,Func<long> rev,Func<string?> status,Action opened){this.opened=opened;}
+ public void ReleaseResources()=>Released=true;public void Open(){Opens++;opened();}public void Scroll(int n){}public void populateClickableComponentList(){}
+ public override void draw(Microsoft.Xna.Framework.Graphics.SpriteBatch b){Draws++;b.Events.Add("progress-content");}
+ public override void update(Microsoft.Xna.Framework.GameTime t)=>Updates++;
+ }
+
 
 }

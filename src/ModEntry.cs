@@ -73,6 +73,10 @@ public sealed class ModEntry : Mod
             if (Context.IsWorldReady) menus.Value.MenuChanged(e.NewMenu);
             else menus.Value.Detach();
         };
+        GameRunner.instance.Window.ClientSizeChanged += (_, _) =>
+            GameRunner.instance.ExecuteForInstances(_ => { if (Context.IsWorldReady) menus.Value.BeforeWindowResize(); });
+        helper.Events.Display.WindowResized += (_, _) =>
+            GameRunner.instance.ExecuteForInstances(_ => { if (Context.IsWorldReady) menus.Value.AfterWindowResize(); });
         helper.Events.Display.RenderingActiveMenu += (_, e) => { if (Context.IsWorldReady) menus.Value.BeforeDraw(e.SpriteBatch); };
         helper.Events.Display.RenderedActiveMenu += (_, e) => { if (Context.IsWorldReady) menus.Value.AfterDraw(e.SpriteBatch); };
         helper.Events.Input.ButtonPressed += (_, e) => { if (Context.IsWorldReady) menus.Value.Input(e); };
