@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../../src/Menus/MenuIntegration.cs" Link="MenuIntegration.cs" />
+    <Compile Include="../../src/Menus/BetterGameMenuIntegration.cs" Link="BetterGameMenuIntegration.cs" />
+    <Compile Include="../../src/Menus/IBetterGameMenuApi.cs" Link="IBetterGameMenuApi.cs" />
     <ProjectReference Include="../../core/ProductionProgress.Core.csproj" />
   </ItemGroup>
 </Project>

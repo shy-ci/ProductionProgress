@@ -17,7 +17,8 @@ internal sealed class ProgressPage : IClickableMenu
     private readonly Func<long> getRevision;
     private readonly Func<string?> getStatus;
     private readonly Action opened;
-    private readonly GameMenu menu;
+    private readonly IClickableMenu menu;
+    private readonly Func<int> getTabsBottom;
     private readonly Dictionary<long, string> itemNames = new();
     private List<Line> lines = new();
     private List<ProgressDisplayGroup> ordered = new();
@@ -42,12 +43,13 @@ internal sealed class ProgressPage : IClickableMenu
 
     private static Rectangle Pixel(Rectangle source, int x, int y) => new(source.X + x, source.Y + y, 1, 1);
 
-    public ProgressPage(GameMenu menu, ITranslationHelper text, Func<IReadOnlyCollection<ProgressRow>> getRows,
-        Func<long> getRevision, Func<string?> getStatus, Action opened)
+    public ProgressPage(IClickableMenu menu, ITranslationHelper text, Func<IReadOnlyCollection<ProgressRow>> getRows,
+        Func<long> getRevision, Func<string?> getStatus, Action opened, Func<int> getTabsBottom)
         : base(menu.xPositionOnScreen, menu.yPositionOnScreen, menu.width, menu.height)
     {
         this.text = text; this.getRows = getRows; this.getRevision = getRevision;
         this.getStatus = getStatus; this.opened = opened; this.menu = menu;
+        this.getTabsBottom = getTabsBottom;
         layout = CreateLayout();
     }
 
@@ -55,10 +57,19 @@ internal sealed class ProgressPage : IClickableMenu
     private int VisibleRows => layout.VisibleRows;
     public void ReleaseResources() { draggingScroll = false; itemNames.Clear(); ordered.Clear(); lines.Clear(); }
     private ProgressLayout CreateLayout() => ProgressLayout.Create(menu.xPositionOnScreen, menu.yPositionOnScreen,
-        width, height, menu.tabs.Select(t => t.bounds.Bottom).DefaultIfEmpty(menu.yPositionOnScreen).Max(),
+        width, height, getTabsBottom(),
         spaceToClearTopBorder, borderWidth + spaceToClearSideBorder,
         (int)Math.Ceiling(Game1.smallFont.MeasureString(text.Get("growing") + "Ag").Y),
         (int)Math.Ceiling(Game1.smallFont.MeasureString(text.Get("growing") + "Ag").Y * DetailScale));
+
+    public override void gameWindowSizeChanged(Rectangle oldBounds, Rectangle newBounds)
+    {
+        // Menu hosts position themselves before forwarding the resize to their page.
+        xPositionOnScreen = menu.xPositionOnScreen; yPositionOnScreen = menu.yPositionOnScreen;
+        width = menu.width; height = menu.height;
+        draggingScroll = false;
+        Refresh();
+    }
     public void Scroll(int delta)
     {
         SetScroll(scroll + delta * layout.RowHeight);

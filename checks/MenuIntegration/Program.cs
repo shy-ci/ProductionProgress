@@ -12,6 +12,7 @@ sealed class Helper : IModHelper
 {
     public InputHelper Input { get; } = new();
     public TranslationHelper Translation { get; } = new();
+    public ModRegistry ModRegistry { get; } = new();
 }
 sealed class Monitor : IMonitor
 {
@@ -71,6 +72,8 @@ static class Program
     static IClickableMenu New(Type type) => (IClickableMenu)Activator.CreateInstance(type)!;
     static void Main()
     {
+        BetterGameMenuChecks.Run();
+        HostInputOwnership();
         var proxy = PageType("UltraSmooth", "UltraSmooth.Optimizers.SmoothTabProxy");
         var space = PageType("SpaceCore", "SpaceCore.Interface.NewSkillsPage");
         var unknown = PageType("UnlistedMod", "UnlistedMod.CustomSkillsPage");
@@ -138,6 +141,25 @@ static class Program
             Check(!Selected(m,p) && m.NativeChanges == 1 && log.Messages.Count == 0, "full release permits one next transition");
             e.Detach();
         }
+    }
+
+    static void HostInputOwnership()
+    {
+        var (entry, menu, helper, _, page) = Setup(current: 1);
+        Game1.options.gamepadControls = true;
+        Frame(entry, menu, helper, false, true);
+        Check(Selected(menu, page), "native trigger transition is consumed before changing host");
+        var otherHost = new IClickableMenu();
+        Game1.activeClickableMenu = otherHost;
+        helper.Input.Suppressed.Clear();
+        Game1.input.State = new(false, true);
+        entry.BeforeUpdate();
+        Check(helper.Input.Suppressed.Count == 0, "new host owns held input before MenuChanged arrives");
+        entry.MenuChanged(otherHost);
+        var next = Native(); Game1.activeClickableMenu = next; entry.Attach(next);
+        Game1.oldPadState = new(false, true); entry.BeforeUpdate();
+        Check(helper.Input.Suppressed.Count == 0 && next.currentTab == 0, "detached trigger ownership does not leak into a new menu");
+        entry.Detach();
     }
     static void ModalAndOwnership()
     {

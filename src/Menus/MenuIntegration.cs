@@ -74,7 +74,8 @@ internal sealed class MenuIntegration
         tab = new(position, "MossHarbor.ProductionProgress", helper.Translation.Get("title"))
         { myID = tabId, leftNeighborID = beforeTab.myID, rightNeighborID = afterTab.myID, downNeighborID = -99998,
             tryDefaultIfNoDownNeighborExists = true, fullyImmutable = true };
-        page = new(menu, helper.Translation, rows, revision, status, opened);
+        page = new(menu, helper.Translation, rows, revision, status, opened,
+            () => gameMenu.tabs.Select(t => t.bounds.Bottom).DefaultIfEmpty(gameMenu.yPositionOnScreen).Max());
         menu.pages.Add(page);
         icon = ItemRegistry.GetDataOrErrorItem("(O)262");
         resumeAfterResize = resume; resumeAfterMap = returnFromMap;
@@ -111,6 +112,7 @@ internal sealed class MenuIntegration
         page?.ReleaseResources();
         menu = null; page = null; tab = null; beforeTab = null; afterTab = null; lastPage = null; icon = null;
         beforeRight = null; afterLeft = null; boundsChanges.Clear(); resumeAfterResize = false; resumeAfterMap = false;
+        consumedLeftTrigger = false; consumedRightTrigger = false;
     }
 
     private int RemainingIndex(IClickableMenu? target)
@@ -118,6 +120,9 @@ internal sealed class MenuIntegration
 
     public void BeforeUpdate()
     {
+        // Another host (including Better Game Menu) owns input as soon as the
+        // active root changes, even before SMAPI delivers MenuChanged.
+        if (!IsActive) return;
         GamePadState state = Game1.input.GetGamePadState();
         bool right = TriggerEdge(state, Buttons.RightTrigger, SButton.RightTrigger, ref consumedRightTrigger);
         bool left = TriggerEdge(state, Buttons.LeftTrigger, SButton.LeftTrigger, ref consumedLeftTrigger);

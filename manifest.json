@@ -1,10 +1,13 @@
 {
   "Name": "Production Progress",
   "Author": "MossHarbor",
-  "Version": "0.1.17",
+  "Version": "0.1.18",
   "Description": "Track crop growth, machine production, tapping and aging progress in one menu tab, with completion dates and times.",
   "UniqueID": "MossHarbor.ProductionProgress",
   "EntryDll": "ProductionProgress.dll",
   "MinimumApiVersion": "4.0.8",
+  "Dependencies": [
+    { "UniqueID": "leclair.bettergamemenu", "MinimumVersion": "1.0.1", "IsRequired": false }
+  ],
   "UpdateKeys": ["Nexus:54196"]
 }

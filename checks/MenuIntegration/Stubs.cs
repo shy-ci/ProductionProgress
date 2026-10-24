@@ -16,14 +16,19 @@ namespace Microsoft.Xna.Framework.Input {
 }
 namespace StardewModdingAPI {
  public enum SButton { MouseLeft, ControllerA, DPadDown, DPadUp, LeftTrigger, RightTrigger }
- public enum LogLevel { Warn, Debug }
+ public enum LogLevel { Warn, Debug, Info, Error }
+ public static class Context { public static bool IsWorldReady=true; }
+ public class ModRegistry { public bool Loaded; public object? Api; public Exception? Failure; public int Reads; public bool IsLoaded(string id)=>Loaded; public T? GetApi<T>(string id) where T:class { Reads++; if(Failure!=null)throw Failure;return Api as T; } public ModInfo? Get(string id)=>Loaded?new():null; }
+ public class ModInfo { public Manifest Manifest {get;}=new(); }
+ public class Manifest { public string Version=>"1.0.1"; }
  public interface IMonitor { void Log(string text,LogLevel level); }
  public class Cursor { public Microsoft.Xna.Framework.Vector2 ScreenPixels {get;set;} }
  public class InputHelper { public readonly HashSet<SButton> Suppressed=new(); public Cursor Cursor=new(); public bool IsSuppressed(SButton b)=>Suppressed.Contains(b); public void Suppress(SButton b)=>Suppressed.Add(b); public Cursor GetCursorPosition()=>Cursor; }
  public class TranslationHelper { public string Get(string key)=>"Progress"; }
- public interface IModHelper { InputHelper Input {get;} TranslationHelper Translation {get;} }
+ public interface IModHelper { InputHelper Input {get;} TranslationHelper Translation {get;} ModRegistry ModRegistry {get;} }
 }
 namespace StardewModdingAPI.Events {
+ public enum EventPriority { Normal }
  public class ButtonPressedEventArgs { public StardewModdingAPI.SButton Button; public StardewModdingAPI.Cursor Cursor=new(); }
 }
 namespace StardewValley.ItemTypeDefinitions {
@@ -40,7 +45,7 @@ namespace StardewValley.Menus {
  using Microsoft.Xna.Framework.Graphics;
  public class ClickableComponent { public Rectangle bounds; public string name; public int myID,leftNeighborID,rightNeighborID,downNeighborID; public bool tryDefaultIfNoDownNeighborExists,fullyImmutable; public bool containsPoint(int x,int y)=>bounds.Contains(x,y); public ClickableComponent(Rectangle b,string n,string label){bounds=b;name=n;} }
  public class IClickableMenu {
- public int xPositionOnScreen,yPositionOnScreen,width=880,height=680; public ClickableComponent? upperRightCloseButton;
+ public int xPositionOnScreen,yPositionOnScreen,width=880,height=680; public static int tabYPositionRelativeToMenuY=-48; public ClickableComponent? upperRightCloseButton;
  public IClickableMenu(){} public IClickableMenu(int x,int y,int w,int h){xPositionOnScreen=x;yPositionOnScreen=y;width=w;height=h;}
  public virtual void update(GameTime time){} public virtual void draw(SpriteBatch b){} public virtual void receiveLeftClick(int x,int y,bool playSound=true){}
  public virtual void receiveRightClick(int x,int y,bool playSound=true){} public virtual void receiveScrollWheelAction(int direction){}
@@ -72,7 +77,7 @@ namespace MossHarbor.ProductionProgress.Menus {
  using StardewValley.Menus;
  public class ProgressPage:IClickableMenu {
  private readonly Action opened; public int Opens,Draws,Updates;public bool Released;
- public ProgressPage(GameMenu m,StardewModdingAPI.TranslationHelper t,Func<IReadOnlyCollection<ProgressRow>> rows,Func<long> rev,Func<string?> status,Action opened){this.opened=opened;}
+ public ProgressPage(IClickableMenu m,StardewModdingAPI.TranslationHelper t,Func<IReadOnlyCollection<ProgressRow>> rows,Func<long> rev,Func<string?> status,Action opened,Func<int> tabsBottom){this.opened=opened;}
  public void ReleaseResources()=>Released=true;public void Open(){Opens++;opened();}public void Scroll(int n){}public void populateClickableComponentList(){}
  public override void draw(Microsoft.Xna.Framework.Graphics.SpriteBatch b){Draws++;b.Events.Add("progress-content");}
  public override void update(Microsoft.Xna.Framework.GameTime t)=>Updates++;

@@ -31,6 +31,8 @@ public sealed class ModEntry : Mod
         config = helper.ReadConfig<ModConfig>();
         if (!config.Enabled) return;
         menus = new PerScreen<MenuIntegration>(() => new MenuIntegration(helper, Rows, Revision, Status, RequestSnapshot, Monitor));
+        helper.Events.GameLoop.GameLaunched += (_, _) =>
+            new BetterGameMenuIntegration(helper, Monitor, Rows, Revision, Status, RequestSnapshot).Register();
         helper.Events.GameLoop.SaveLoaded += SaveLoaded;
         helper.Events.GameLoop.DayEnding += (_, _) =>
         { if (Context.IsMainPlayer) { dayTransition = true; tracker?.BeginOvernight(); } };
