@@ -74,6 +74,8 @@ static class Program
     {
         BetterGameMenuChecks.Run();
         HostInputOwnership();
+        ScaledPointerSelection();
+        InputDiagnostics();
         var proxy = PageType("UltraSmooth", "UltraSmooth.Optimizers.SmoothTabProxy");
         var space = PageType("SpaceCore", "SpaceCore.Interface.NewSkillsPage");
         var unknown = PageType("UnlistedMod", "UnlistedMod.CustomSkillsPage");
@@ -141,6 +143,62 @@ static class Program
             Check(!Selected(m,p) && m.NativeChanges == 1 && log.Messages.Count == 0, "full release permits one next transition");
             e.Detach();
         }
+    }
+
+    static void ScaledPointerSelection()
+    {
+        foreach (float zoom in new[] { 0.75f, 1f, 1.25f })
+        foreach (float ui in new[] { 0.75f, 1f, 1.25f, 1.5f })
+        foreach (bool controllerMode in new[] { false, true })
+        {
+            var (entry, menu, helper, log, page) = Setup(current: 1);
+            Game1.options.zoomLevel = zoom; Game1.options.uiScale = ui;
+            Game1.options.gamepadControls = controllerMode; Game1.options.SnappyMenus = controllerMode;
+            // Native menu bounds are in UI units. SMAPI reports physical pixels / world zoom.
+            Cursor Pointer(float x, float y) => new() { ScreenPixels = new(x * ui / zoom, y * ui / zoom) };
+            helper.Input.Cursor = Pointer(250, 40);
+            var draw = new SpriteBatch(); entry.BeforeDraw(draw); entry.AfterDraw(draw);
+            entry.Input(new() { Button = SButton.MouseLeft, Cursor = Pointer(250, 40) });
+            Check(Selected(menu, page), $"visible tab accepts mouse at zoom={zoom}, ui={ui}, controller={controllerMode}");
+            Check(draw.Events.Contains("tooltip:Progress"), $"hover follows visible tab at zoom={zoom}, ui={ui}, controller={controllerMode}");
+            Check(Game1.options.gamepadControls == controllerMode, "mouse entry doesn't override the player's input mode");
+
+            // Controller entry -> controller exit -> mouse re-entry within the same menu.
+            helper.Input.Suppressed.Clear(); Game1.options.gamepadControls = true;
+            Frame(entry, menu, helper, false, true);
+            Check(menu.currentTab == 2, "controller exits Progress before switching to mouse");
+            Frame(entry, menu, helper, false, false);
+            entry.Input(new() { Button = SButton.MouseLeft, Cursor = Pointer(250, 40) });
+            Check(Selected(menu, page), "mouse can re-enter immediately after controller navigation");
+
+            helper.Input.Suppressed.Clear(); menu.changeTab(1, false); entry.UpdateNavigation();
+            entry.Input(new() { Button = SButton.MouseLeft, Cursor = Pointer(320, 40) });
+            Check(!Selected(menu, page) && !helper.Input.IsSuppressed(SButton.MouseLeft), "adjacent native tab clicks aren't consumed");
+            Game1.options.SnappyMenus = false;
+            entry.Input(new() { Button = SButton.ControllerA, Cursor = Pointer(250, 40) });
+            Check(Selected(menu, page), "free controller cursor uses the same scaled hit area");
+            Check(log.Messages.Count == 0, "mixed input remains silent");
+            entry.Detach();
+        }
+    }
+
+    static void InputDiagnostics()
+    {
+        var (entry, menu, helper, log, page) = Setup();
+        helper.Input.Cursor = Click().Cursor;
+        entry.InspectInput(Array.Empty<string>());
+        Check(log.Messages.Count == 1 && log.Messages[0].Contains("hit=True") && log.Messages[0].Contains("trace=False"), "manual diagnostic reports hit state once");
+        Check(!Selected(menu, page) && helper.Input.Suppressed.Count == 0, "diagnostic snapshot does not select or suppress input");
+        entry.InspectInput(new[] { "on" }); log.Messages.Clear();
+        helper.Input.Suppress(SButton.MouseLeft); entry.Input(Click());
+        Check(log.Messages.Count == 1 && log.Messages[0].Contains("mouseSuppressed=True"), "opt-in diagnostic records suppressed clicks");
+        Check(!Selected(menu, page), "diagnostics preserve other mods' input ownership");
+        helper.Input.Suppressed.Clear(); log.Messages.Clear(); entry.Input(Click());
+        Check(log.Messages.Count == 1 && log.Messages[0].Contains("uiPoint=") && Selected(menu, page), "opt-in diagnostic records actual cursor data before normal selection");
+        entry.InspectInput(new[] { "off" }); log.Messages.Clear();
+        entry.Input(Click());
+        Check(log.Messages.Count == 0, "disabled diagnostics are silent");
+        entry.Detach();
     }
 
     static void HostInputOwnership()

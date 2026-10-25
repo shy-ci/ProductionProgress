@@ -6,6 +6,7 @@
   "initializing": "Reading progress...", "synchronizing": "Waiting for the host...",
   "host-required": "The host needs Production Progress installed.",
   "eta-unknown": "Time unknown",
+  "sunny-days-remaining": "{{days}} sunny day(s) left",
   "growth-complete": "Growth complete", "processing-complete": "Processing complete", "collection-complete": "Collection complete",
   "mature": "Mature", "progress-target": "{{percent}}% {{target}}",
   "clock-date": "{{date}} {{time}}", "clock-night": "Night {{time}}",

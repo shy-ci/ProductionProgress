@@ -6,6 +6,7 @@
   "initializing": "正在整理进度...", "synchronizing": "正在等待主机同步...",
   "host-required": "联机主机需要安装 Production Progress 模组",
   "eta-unknown": "时间未知",
+  "sunny-days-remaining": "还需{{days}}个有效晴天",
   "growth-complete": "生长完成", "processing-complete": "制作完成", "collection-complete": "采集完成",
   "mature": "成熟", "progress-target": "{{percent}}%{{target}}",
   "clock-date": "{{date}} {{time}}", "clock-night": "夜间{{time}}",

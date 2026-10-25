@@ -2,7 +2,7 @@ namespace MossHarbor.ProductionProgress.Core;
 
 public enum ProductionKind { Crop, Regrowth, Machine, Tapper, Aging }
 public enum ProductionState { Working, Ready, Withered }
-public enum ProgressClock { Daily, ProcessingMinutes }
+public enum ProgressClock { Daily, ProcessingMinutes, SunnyMinutes }
 
 public readonly record struct BatchKey(
     string Location, string ItemId, string FlavorId, int PreserveKind,
@@ -52,10 +52,21 @@ public sealed class ProgressRow
     public int? EstimatedDays(long now)
     {
         if (State != ProductionState.Working) return null;
+        if (Clock == ProgressClock.SunnyMinutes) return null; // future weather isn't a calendar forecast
         if (Clock == ProgressClock.ProcessingMinutes)
             return Due > 0 ? ProgressMath.DaysUntilDeadline(now, Due) : null;
         if (Total <= 0 || !double.IsFinite(Remaining) || Remaining < 0 || !double.IsFinite(Rate) || Rate <= 0) return null;
         double days = Math.Ceiling(Remaining / Rate);
+        return days <= int.MaxValue ? (int)days : null;
+    }
+
+    public int? RemainingSunnyDays()
+    {
+        if (State != ProductionState.Working || Clock != ProgressClock.SunnyMinutes
+            || !double.IsFinite(Remaining) || Remaining < 0) return null;
+        // A full native processing day contains 1200 daytime + 400 overnight minutes.
+        // Use the machine's actual remaining work, even if this cycle's total wasn't observed.
+        double days = Math.Ceiling(Remaining / 1600d);
         return days <= int.MaxValue ? (int)days : null;
     }
 

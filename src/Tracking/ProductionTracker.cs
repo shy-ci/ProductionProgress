@@ -131,6 +131,9 @@ internal sealed class ProductionTracker : IDisposable
                     Ready = obj.readyForHarvest.Value, Minutes = obj.MinutesUntilReady,
                     HasMachineData = data != null, Incubator = data?.IsIncubator, OvernightOnly = data?.OnlyCompleteOvernight,
                     LastRule = obj.lastOutputRuleId.Value, RuleDays = rule?.DaysUntilReady, RuleMinutes = rule?.MinutesUntilReady,
+                    Outdoors = location.IsOutdoors, RainingHere = location.IsRainingHere(), SolarClock = UsesSolarClock(data),
+                    TimeBlockers = data?.PreventTimePass?.Select(p => p.ToString()).ToArray(),
+                    OutputMethods = rule?.OutputItem?.Select(p => p.OutputMethod).ToArray(),
                     TreeType = tree?.treeType.Value, TreeStage = tree?.growthStage.Value,
                     TapItems = tree?.GetData()?.TapItems?.Select(t => new
                         { t.ItemId, t.DaysUntilReady, Modifiers = t.DaysUntilReadyModifiers?.Count ?? 0, PreviousItems = t.PreviousItemId?.Count ?? 0 }).ToArray(),
@@ -139,7 +142,8 @@ internal sealed class ProductionTracker : IDisposable
                     Cached = row == null ? null : new
                     {
                         row.Id, row.Count, row.ItemId, Kind = row.Kind.ToString(), State = row.State.ToString(), Clock = row.Clock.ToString(),
-                        row.Total, row.Remaining, row.Due, row.ObservedDay, Fraction = row.Fraction(Clock), Finish = row.DisplayDate(Clock)
+                        row.Total, row.Remaining, row.Due, row.ObservedDay, Fraction = row.Fraction(Clock), Finish = row.DisplayDate(Clock),
+                        SunnyDaysRemaining = row.RemainingSunnyDays()
                     }
                 }), LogLevel.Info);
             }
@@ -220,7 +224,10 @@ internal sealed class ProductionTracker : IDisposable
         });
         s.Root.Watch(obj.lastOutputRuleId, s.Mark);
         s.Root.Watch(obj.lastInputItem, s.Mark);
-        if (config.ObserveAllTimerChanges) s.Root.Watch(obj.minutesUntilReady, s.Mark);
+        // Weather-dependent work must follow actual timer changes, not an elapsed wall clock.
+        // Reuse the existing coalesced queue; ordinary machines retain their deadline schedule.
+        if (config.ObserveAllTimerChanges || UsesSolarClock(obj.GetMachineData()))
+            s.Root.Watch(obj.minutesUntilReady, s.Mark);
         if (obj is Cask cask)
         {
             s.Daily = true;
@@ -379,6 +386,7 @@ internal sealed class ProductionTracker : IDisposable
         if (machine is Cask cask) { RefreshCask(s, cask, output, state); return; }
         MachineData? data = machine.GetMachineData();
         MachineOutputRule? rule = data?.OutputRules?.FirstOrDefault(r => r.Id == machine.lastOutputRuleId.Value);
+        bool solar = UsesSolarClock(data) && rule != null;
         bool tapper = machine.IsTapper();
         bool daily = tapper || rule?.DaysUntilReady >= 0 || data?.OnlyCompleteOvernight == true;
         s.DateIncludesTime = !daily;
@@ -393,7 +401,7 @@ internal sealed class ProductionTracker : IDisposable
         {
             if (observedStart) s.Total = units;
             else if (saved.TryGetValue(SaveKey(s), out SavedCycle? old) && old.Fingerprint == Fingerprint(machine)
-                     && old.Remaining == remaining && old.Daily == daily) s.Total = old.Total;
+                     && old.Remaining == remaining && old.Daily == s.Daily) s.Total = old.Total;
             else s.Total = InferTotal(s, rule, data, output, daily);
             if (s.Total < units) s.Total = 0; // unknown modifiers: don't invent a denominator
         }
@@ -401,10 +409,24 @@ internal sealed class ProductionTracker : IDisposable
         if (state == ProductionState.Working && !daily && !conditional)
             due.Set(s, Math.Max(Clock + 10, deadline));
         Set(s, output.QualifiedItemId, output.DisplayName, tapper ? ProductionKind.Tapper : ProductionKind.Machine,
-            state, daily || conditional ? ProgressClock.Daily : ProgressClock.ProcessingMinutes,
-            conditional ? 0 : s.Total, daily || conditional ? units : 0,
+            state, solar ? ProgressClock.SunnyMinutes : daily || conditional ? ProgressClock.Daily : ProgressClock.ProcessingMinutes,
+            conditional && !solar ? 0 : s.Total, daily || conditional ? units : 0,
             daily || conditional ? 0 : deadline, output.Quality, output.Quality, 1, s.Rule,
             output.preservedParentSheetIndex.Value ?? "", output.preserve.Value.HasValue ? (int)output.preserve.Value.Value : -1);
+    }
+
+    private static bool UsesSolarClock(MachineData? data)
+    {
+        // Recognize the inspected vanilla solar output contract, not every battery-producing
+        // machine or arbitrary conditional timer. Other rule shapes keep the unknown estimate.
+        if (data?.OnlyCompleteOvernight != false || data.OutputRules is not { Count: 1 }
+            || data.PreventTimePass is not { Count: 2 }
+            || !data.PreventTimePass.Contains(MachineTimeBlockers.Inside)
+            || !data.PreventTimePass.Contains(MachineTimeBlockers.Rain)) return false;
+        MachineOutputRule rule = data.OutputRules[0];
+        return rule.DaysUntilReady < 0 && rule.MinutesUntilReady < 0
+            && rule.OutputItem is { Count: 1 }
+            && rule.OutputItem[0].OutputMethod == "StardewValley.Object, Stardew Valley: OutputSolarPanel";
     }
 
     private void RefreshCrop(Source s)
@@ -487,7 +509,9 @@ internal sealed class ProductionTracker : IDisposable
         {
             s.CompletionLoaded = true;
             if (savedCompletions.Count > 0 && savedCompletions.Remove(CompletionKey(s), out SavedCompletion? old)
-                && s.AllowCompletionRestore && state == ProductionState.Ready && old.Kind == kind && old.Clock == clock
+                && s.AllowCompletionRestore && state == ProductionState.Ready && old.Kind == kind
+                // Earlier versions saved solar completions under the generic conditional daily clock.
+                && (old.Clock == clock || clock == ProgressClock.SunnyMinutes && old.Clock == ProgressClock.Daily)
                 && old.Fingerprint == CompletionFingerprint(s) && old.Day >= 0 && old.Day <= day)
                 s.Completion.Restore(old.Day, old.Time, old.AgingFromQuality);
         }

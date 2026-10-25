@@ -6,6 +6,9 @@ public sealed record ProgressLayout(int Left, int Width, int ListTop, int RowHei
 {
     public const int BarHeight = 14;
     public const int ColumnGap = 20;
+    public const int IconSize = 48;
+    public const int IconGap = 16;
+    public int NameLeft => Left + IconSize + IconGap;
     // SDV 1.6.8 drawDialogueBox draws the bottom 64px tile at menuBottom - 64.
     // Maps/MenuTiles' bottom edge starts at tile y=28: content ends at bottom - 36.
     // The scrollbar arrow's bottom - 16 is the OUTER edge, not a content boundary.
@@ -32,13 +35,14 @@ public sealed record ProgressLayout(int Left, int Width, int ListTop, int RowHei
         const int nameOffset = 4;
         int barOffset = nameOffset + textHeight + 2;
         int detailOffset = barOffset + BarHeight + 2;
-        int rowHeight = detailOffset + detailHeight + 8;
-        int nameWidth = width / 2;
-        int timeWidth = width * 35 / 100;
+        int rowHeight = Math.Max(detailOffset + detailHeight + 8, nameOffset + IconSize + 8);
+        int contentWidth = Math.Max(0, width - IconSize - IconGap);
+        int nameWidth = contentWidth / 2;
+        int timeWidth = contentWidth * 35 / 100;
         int timeLeft = left + width - timeWidth;
-        int barLeft = left;
-        int barWidth = width;
-        int listHeight = width < 240 ? 0 : Math.Max(0, menuY + menuHeight - BottomInset - listTop);
+        int barLeft = left + IconSize + IconGap;
+        int barWidth = contentWidth;
+        int listHeight = contentWidth < 240 ? 0 : Math.Max(0, menuY + menuHeight - BottomInset - listTop);
         return new(left, width, listTop, rowHeight, nameWidth, barLeft, barWidth,
             timeLeft, timeWidth, barLeft, barWidth, nameOffset, barOffset, detailOffset, listHeight);
     }

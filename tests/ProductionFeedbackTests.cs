@@ -30,16 +30,21 @@ public sealed class ProductionFeedbackTests
         Assert.Equal(tabsBottom + 16, layout.ListTop);
         Assert.Equal(x + contentInset, layout.Left);
         Assert.Equal(width - contentInset * 2, layout.Width);
-        Assert.True(layout.Left + layout.NameWidth < layout.TimeLeft);
+        Assert.True(layout.NameLeft + layout.NameWidth < layout.TimeLeft);
         Assert.Equal(layout.Left + layout.Width, layout.TimeLeft + layout.TimeWidth);
         Assert.Equal(layout.BarLeft, layout.ProgressLeft);
         Assert.Equal(layout.BarWidth, layout.ProgressWidth);
-        Assert.True(layout.BarLeft >= layout.Left);
+        Assert.Equal(layout.NameLeft, layout.BarLeft);
+        Assert.True(layout.BarLeft >= layout.Left + ProgressLayout.IconSize + ProgressLayout.IconGap);
         Assert.True(layout.BarLeft + layout.BarWidth <= layout.Left + layout.Width);
         Assert.True(layout.BarOffset >= layout.NameOffset + textHeight + 2);
         Assert.True(layout.DetailOffset >= layout.BarOffset + ProgressLayout.BarHeight + 2);
         Assert.True(layout.RowHeight >= layout.DetailOffset + detailHeight);
         Assert.True(layout.NameOffset + textHeight <= layout.RowHeight);
+        Assert.True(layout.NameOffset + ProgressLayout.IconSize + 8 <= layout.RowHeight);
+        // The added icon must not move the existing three vertical bands or enlarge normal rows.
+        Assert.Equal(4, layout.NameOffset);
+        Assert.Equal(4 + textHeight + 2 + 14 + 2 + detailHeight + 8, layout.RowHeight);
         Assert.True(layout.VisibleRows >= 4);
         Assert.Equal(y + height - 36, layout.ListTop + layout.ListHeight);
         Assert.True(layout.ListTop + layout.VisibleRows * layout.RowHeight <= y + height - 36);

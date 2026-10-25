@@ -33,6 +33,7 @@ internal sealed class MenuIntegration
     private ParsedItemData? icon;
     private GameMenu? hoverOwner;
     private string? suppressedHoverText;
+    private bool traceInput;
     private bool IsSelected => page != null && ReferenceEquals(CurrentPage(menu), page);
     private bool IsActive => menu != null && ReferenceEquals(Game1.activeClickableMenu, menu);
     private bool CanInteractWithTabs => menu != null && IsActive && !menu.invisible
@@ -179,6 +180,8 @@ internal sealed class MenuIntegration
 
     public void Input(ButtonPressedEventArgs e)
     {
+        if (traceInput && Game1.activeClickableMenu != null && (e.Button is SButton.MouseLeft or SButton.ControllerA))
+            LogInputState(e.Button.ToString(), e.Cursor.ScreenPixels);
         if (menu == null || page == null || tab == null || !IsActive || helper.Input.IsSuppressed(e.Button)) return;
         // MapPage can reconstruct GameMenu from lastOpenedNonMapTab. Avoid passing
         // our appended index to that native constructor, then restore our page.
@@ -190,12 +193,38 @@ internal sealed class MenuIntegration
             menu.lastOpenedNonMapTab = 0;
         }
         if (!CanInteractWithTabs || GameMenu.forcePreventClose || !ValidateMapping()) return;
-        Vector2 point = e.Cursor.ScreenPixels;
+        // ButtonPressed can run outside UI mode. Convert explicitly instead of
+        // relying on GetScaledScreenPixels' uiMode-dependent behavior.
+        Vector2 point = Utility.ModifyCoordinatesForUIScale(e.Cursor.ScreenPixels);
         bool cursorOnTab = tab.bounds.Contains((int)point.X, (int)point.Y);
         bool select = e.Button == SButton.MouseLeft && cursorOnTab
             || e.Button == SButton.ControllerA && (Game1.options.SnappyMenus
                 ? ReferenceEquals(CurrentPage(menu)?.getCurrentlySnappedComponent(), tab) : cursorOnTab);
         if (select) { helper.Input.Suppress(e.Button); if (menu.readyToClose()) Open(); }
+    }
+
+    public void InspectInput(string[] args)
+    {
+        if (args.Length > 1 || args.Length == 1 && args[0] is not ("on" or "off"))
+        {
+            monitor.Log("Usage: production_progress_menu [on|off]. With no argument, prints one input snapshot; on/off toggles click diagnostics.", LogLevel.Info);
+            return;
+        }
+        if (args.Length == 1) traceInput = args[0] == "on";
+        LogInputState("manual", helper.Input.GetCursorPosition().ScreenPixels);
+    }
+
+    private void LogInputState(string input, Vector2 screenPoint)
+    {
+        Vector2 uiPoint = Utility.ModifyCoordinatesForUIScale(screenPoint);
+        monitor.Log($"Production menu input: input={input}; trace={traceInput}; root={DescribePage(Game1.activeClickableMenu)}; "
+            + $"uiScale={Game1.options.uiScale}; zoom={Game1.options.zoomLevel}; gamepad={Game1.options.gamepadControls}; "
+            + $"snappy={Game1.options.snappyMenus}; mode={Game1.options.gamepadMode}; "
+            + $"screenPoint={screenPoint}; uiPoint={uiPoint}; entryBounds={tab?.bounds}; "
+            + $"hit={tab?.bounds.Contains((int)uiPoint.X, (int)uiPoint.Y)}; nativeAttached={IsActive}; "
+            + $"tabsInteractive={CanInteractWithTabs}; selected={IsSelected}; forcePreventClose={GameMenu.forcePreventClose}; "
+            + $"currentPage={DescribePage(CurrentPage(menu))}; pageReadyToClose={CurrentPage(menu)?.readyToClose()}; "
+            + $"mouseSuppressed={helper.Input.IsSuppressed(SButton.MouseLeft)}; controllerASuppressed={helper.Input.IsSuppressed(SButton.ControllerA)}", LogLevel.Info);
     }
 
     private void Open(bool playSound = true)
@@ -330,7 +359,7 @@ internal sealed class MenuIntegration
         Rectangle visualBounds = DrawTab(b);
         if (!string.IsNullOrEmpty(menu.hoverText))
             IClickableMenu.drawHoverText(b, menu.hoverText, Game1.smallFont);
-        Vector2 mouse = helper.Input.GetCursorPosition().ScreenPixels;
+        Vector2 mouse = Utility.ModifyCoordinatesForUIScale(helper.Input.GetCursorPosition().ScreenPixels);
         if (visualBounds.Contains((int)mouse.X, (int)mouse.Y))
             IClickableMenu.drawHoverText(b, helper.Translation.Get("title"), Game1.smallFont);
         // Only the foreground pass needs a cursor after it. Letters and child menus

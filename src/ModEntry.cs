@@ -90,6 +90,8 @@ public sealed class ModEntry : Mod
         };
         helper.ConsoleCommands.Add("production_progress_status", "Show production tracker counters without modifying the world.", (_, _) =>
             Monitor.Log(tracker == null ? "Client view; no local world scan." : $"Objects={tracker.TrackedObjects}; batches={tracker.Store.BatchCount}; pending={tracker.PendingChanges}; deadlines={tracker.ScheduledTasks}; initializing={tracker.Initializing}", LogLevel.Info));
+        helper.ConsoleCommands.Add("production_progress_menu", "Read-only menu input diagnostics. Use on/off to toggle click logging; omit the argument for one snapshot.",
+            (_, args) => menus.Value.InspectInput(args));
         helper.ConsoleCommands.Add("production_progress_inspect", "Host only: stand beside a missing machine, then run this to log nearby objects and cached progress. Read-only.", (_, _) =>
         {
             if (!Context.IsWorldReady || !Context.IsMainPlayer || tracker == null)

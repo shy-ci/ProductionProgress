@@ -1,7 +1,7 @@
 {
   "Name": "Production Progress",
   "Author": "MossHarbor",
-  "Version": "0.1.18",
+  "Version": "0.1.19",
   "Description": "Track crop growth, machine production, tapping and aging progress in one menu tab, with completion dates and times.",
   "UniqueID": "MossHarbor.ProductionProgress",
   "EntryDll": "ProductionProgress.dll",

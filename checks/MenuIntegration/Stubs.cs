@@ -36,7 +36,9 @@ namespace StardewValley.ItemTypeDefinitions {
 }
 namespace StardewValley {
  public static class ItemRegistry { public static ItemTypeDefinitions.ParsedItemData GetDataOrErrorItem(string id)=>new(); }
- public class Options { public bool SnappyMenus; public bool gamepadControls; public object menuButton=new(); public bool doesInputListContain(object list,Microsoft.Xna.Framework.Input.Keys key)=>false; }
+ public class Options { public bool SnappyMenus; public bool snappyMenus; public bool gamepadControls; public string gamepadMode="Auto"; public float uiScale=1,zoomLevel=1; public object menuButton=new(); public bool doesInputListContain(object list,Microsoft.Xna.Framework.Input.Keys key)=>false; }
+ // Same transform as the inspected native Utility method; ScreenPixels has already divided out world zoom.
+ public static class Utility { public static Microsoft.Xna.Framework.Vector2 ModifyCoordinatesForUIScale(Microsoft.Xna.Framework.Vector2 p)=>new(p.X/Game1.options.uiScale*Game1.options.zoomLevel,p.Y/Game1.options.uiScale*Game1.options.zoomLevel); }
  public class Input { public Microsoft.Xna.Framework.Input.GamePadState State; public Microsoft.Xna.Framework.Input.GamePadState GetGamePadState()=>State; }
  public static class Game1 { public static Menus.IClickableMenu? activeClickableMenu; public static object mouseCursors=new(),smallFont=new(); public static Options options=new(); public static Input input=new(); public static Microsoft.Xna.Framework.Input.GamePadState oldPadState; public static void playSound(string s){} public static void exitActiveMenu()=>activeClickableMenu=null; }
 }

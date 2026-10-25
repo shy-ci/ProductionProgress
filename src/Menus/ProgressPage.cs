@@ -11,7 +11,8 @@ namespace MossHarbor.ProductionProgress.Menus;
 
 internal sealed class ProgressPage : IClickableMenu
 {
-    private sealed record Line(ProgressRow Row, string Name, string FullName, string Right, string From, string To, double? Fraction);
+    private sealed record DisplayItem(string Name, Item? Icon);
+    private sealed record Line(ProgressRow Row, Item? Icon, string Name, string FullName, string Right, string From, string To, double? Fraction);
     private readonly ITranslationHelper text;
     private readonly Func<IReadOnlyCollection<ProgressRow>> getRows;
     private readonly Func<long> getRevision;
@@ -19,7 +20,7 @@ internal sealed class ProgressPage : IClickableMenu
     private readonly Action opened;
     private readonly IClickableMenu menu;
     private readonly Func<int> getTabsBottom;
-    private readonly Dictionary<long, string> itemNames = new();
+    private readonly Dictionary<long, DisplayItem> displayItems = new();
     private List<Line> lines = new();
     private List<ProgressDisplayGroup> ordered = new();
     private long revision = -1, clock = -1;
@@ -55,7 +56,7 @@ internal sealed class ProgressPage : IClickableMenu
 
     public void Open() { draggingScroll = false; opened(); revision = -1; Refresh(); }
     private int VisibleRows => layout.VisibleRows;
-    public void ReleaseResources() { draggingScroll = false; itemNames.Clear(); ordered.Clear(); lines.Clear(); }
+    public void ReleaseResources() { draggingScroll = false; displayItems.Clear(); ordered.Clear(); lines.Clear(); }
     private ProgressLayout CreateLayout() => ProgressLayout.Create(menu.xPositionOnScreen, menu.yPositionOnScreen,
         width, height, getTabsBottom(),
         spaceToClearTopBorder, borderWidth + spaceToClearSideBorder,
@@ -157,7 +158,7 @@ internal sealed class ProgressPage : IClickableMenu
         if (currentRevision == revision && clock == now && language == currentLanguage) return;
         if (language != currentLanguage || currentRevision != revision || now / 1600 != groupedDay)
         {
-            itemNames.Clear();
+            displayItems.Clear();
             // Project precise batches into display days only when data/language/date changes.
             // No world scan or per-frame grouping; percentage refresh uses visible representatives.
             ordered = ProgressDisplayGroups.Create(getRows(), now).OrderBy(g => g.Current.State)
@@ -175,7 +176,7 @@ internal sealed class ProgressPage : IClickableMenu
         lines = ordered.Skip(range.FirstIndex).Take(range.Count).Select(group =>
         {
             ProgressRow row = group.Current;
-            if (!itemNames.TryGetValue(row.Id, out string? name))
+            if (!displayItems.TryGetValue(row.Id, out DisplayItem? display))
             {
                 try
                 {
@@ -187,11 +188,17 @@ internal sealed class ProgressPage : IClickableMenu
                         obj.preserve.Value = (SObject.PreserveType)row.PreserveKind;
                         obj.preservedParentSheetIndex.Value = row.FlavorId;
                     }
-                    name = item.DisplayName;
+                    // The output identity supplies both the localized name and native icon.
+                    // Keep this display-only item; never retain or mutate a live machine output.
+                    display = new DisplayItem(item.DisplayName, item);
                 }
-                catch { name = string.IsNullOrWhiteSpace(row.Name) ? text.Get("unknown-item").ToString() : row.Name; }
-                itemNames[row.Id] = name;
+                catch
+                {
+                    display = new DisplayItem(string.IsNullOrWhiteSpace(row.Name) ? text.Get("unknown-item").ToString() : row.Name, null);
+                }
+                displayItems[row.Id] = display;
             }
+            string name = display.Name;
             string activity = row.Kind == ProductionKind.Aging ? text.Get("aging").ToString() : "";
             string fullName = name + (activity.Length == 0 ? "" : "(" + activity + ")") + "(" + group.Quantity + ")";
             string title = NameFitting.Fit(name, activity, group.Quantity, layout.NameWidth, value => Game1.smallFont.MeasureString(value).X);
@@ -214,7 +221,9 @@ internal sealed class ProgressPage : IClickableMenu
                 _ => text.Get(row.State == ProductionState.Ready ? "processing-complete" : "processing")
             };
             string to = row.State == ProductionState.Ready ? "" : text.Get("eta-unknown").ToString();
-            if (row.DisplayDate(now) is CompletionDate finish)
+            if (row.RemainingSunnyDays() is int sunnyDays)
+                to = text.Get("sunny-days-remaining", new { days = sunnyDays });
+            else if (row.DisplayDate(now) is CompletionDate finish)
             {
                 var date = new WorldDate(Game1.Date) { TotalDays = finish.Day };
                 string season = text.Get("season-" + date.SeasonKey);
@@ -229,7 +238,7 @@ internal sealed class ProgressPage : IClickableMenu
                     to = text.Get("clock-date", new { date = dateLabel, time });
                 }
             }
-            return new Line(row, title, fullName, right, from, to, fraction);
+            return new Line(row, display.Icon, title, fullName, right, from, to, fraction);
         }).ToList();
         hoveredName = null;
     }
@@ -276,7 +285,7 @@ internal sealed class ProgressPage : IClickableMenu
         for (int i = 0; i < lines.Count; i++)
         {
             Line line = lines[i];
-            var bounds = new Rectangle(layout.Left, layout.ListTop + i * layout.RowHeight - lineOffset + layout.NameOffset,
+            var bounds = new Rectangle(layout.NameLeft, layout.ListTop + i * layout.RowHeight - lineOffset + layout.NameOffset,
                 layout.NameWidth, layout.BarOffset - layout.NameOffset - 2);
             if (line.Name != line.FullName && bounds.Contains(x, y)) { hoveredName = line.FullName; break; }
         }
@@ -303,7 +312,13 @@ internal sealed class ProgressPage : IClickableMenu
             for (int i = 0; i < lines.Count; i++)
             {
                 Line line = lines[i]; int y = top + i * layout.RowHeight;
-                b.DrawString(Game1.smallFont, line.Name, new Vector2(layout.Left, y + layout.NameOffset), Game1.textColor);
+                // drawInMenu centres items in a native 64px slot even when scaled.
+                // Compensate for that inset so the 48px icon starts at the name's top.
+                const int iconInset = (64 - ProgressLayout.IconSize) / 2;
+                line.Icon?.drawInMenu(b, new Vector2(layout.Left - iconInset, y + layout.NameOffset - iconInset),
+                    ProgressLayout.IconSize / 64f, 1f, 0.9f, StackDrawType.Hide, Color.White, drawShadow: false);
+                b.DrawString(Game1.smallFont, line.Name, new Vector2(layout.NameLeft, y + layout.NameOffset),
+                    Color.Lerp(Game1.textColor, Color.Black, 0.15f));
                 float rightWidth = Game1.smallFont.MeasureString(line.Right).X * DetailScale;
                 DrawDetail(b, line.Right, layout.ProgressLeft + layout.ProgressWidth - rightWidth, y + layout.DetailOffset,
                     Game1.textColor);
