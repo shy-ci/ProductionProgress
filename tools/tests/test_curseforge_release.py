@@ -25,14 +25,16 @@ class CurseForgeTests(unittest.TestCase):
                          "sha256": release.digest(self.data), "notes": NOTES,
                          "notes_sha256": release.digest(NOTES.encode())}
         self.target = {"project_id": cf.PROJECT_ID, "page": cf.PAGE,
-                       "game_version": "1.6.8", "game_version_id": 1234}
+                       "game_versions": ["1.6.8", "1.6.15"], "game_version_ids": [1234, 1236]}
         (self.directory / self.snapshot["filename"]).write_bytes(self.data)
         (self.directory / "curseforge-target.json").write_text(json.dumps(self.target))
 
-    def test_exact_game_version_required(self):
-        with patch.object(cf, "request", return_value=[{"id": 1234, "name": "1.6.8"}, {"id": 1235, "name": "1.6.9"}]):
-            self.assertEqual(cf.preflight()["game_version_id"], 1234)
-        for response in [[], {}, [{"id": 1235, "name": "1.6.9"}], [{"id": 1, "name": "1.6.8"}] * 2]:
+    def test_all_confirmed_game_versions_required(self):
+        versions = [{"id": 1236, "name": "1.6.15"}, {"id": 1234, "name": "1.6.8"}, {"id": 1235, "name": "1.6.9"}]
+        with patch.object(cf, "request", return_value=versions):
+            self.assertEqual(cf.preflight(), self.target)
+        for response in [[], {}, versions[:1], versions[1:], versions + [versions[0]],
+                         [{"id": 1, "name": name} for name in cf.GAME_VERSIONS]]:
             with self.subTest(response=response), patch.object(cf, "request", return_value=response), self.assertRaises(cf.UploadError):
                 cf.preflight()
 
@@ -47,7 +49,7 @@ class CurseForgeTests(unittest.TestCase):
         self.assertEqual(metadata["changelog"], NOTES)
         self.assertEqual(metadata["displayName"], "Production Progress 0.1.17")
         self.assertEqual(metadata["releaseType"], "release")
-        self.assertEqual(metadata["gameVersions"], [1234])
+        self.assertEqual(metadata["gameVersions"], [1234, 1236])
         self.assertFalse(metadata["isMarkedForManualRelease"])
 
     def test_submission_is_not_claimed_as_publication(self):
@@ -65,6 +67,19 @@ class CurseForgeTests(unittest.TestCase):
         with patch.object(cf, "request") as upload, self.assertRaises(cf.UploadError):
             cf.submit(self.directory, self.snapshot, release.validate_package)
         upload.assert_not_called()
+
+    def test_partial_or_invalid_version_selection_is_never_uploaded(self):
+        for ids in [[1234], [1234, 1234], [1234, True], [1234, -1]]:
+            target = {**self.target, "game_version_ids": ids}
+            (self.directory / "curseforge-target.json").write_text(json.dumps(target))
+            with self.subTest(ids=ids), patch.object(cf, "request") as upload, self.assertRaises(cf.UploadError):
+                cf.submit(self.directory, self.snapshot, release.validate_package)
+            upload.assert_not_called()
+
+    def test_unconfirmed_game_version_is_rejected(self):
+        target = {**self.target, "game_versions": ["1.6.8", "future-version"]}
+        with self.assertRaises(cf.UploadError):
+            cf.metadata(self.snapshot, target)
 
     def test_changed_package_is_never_uploaded(self):
         (self.directory / self.snapshot["filename"]).write_bytes(b"changed")

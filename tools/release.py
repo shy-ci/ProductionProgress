@@ -190,7 +190,7 @@ def prepare(args):
             f"- 文件：`{snapshot['filename']}`，{snapshot['size']} bytes\n"
             f"- SHA-256：`{snapshot['sha256']}`\n- 源码提交：`{snapshot['source_commit']}`\n"
             "- 操作：更新 Nexus Main / Primary 文件并归档旧版；向 CurseForge 项目 1755780 提交同一 ZIP 和日志，"
-            "标记 Stardew Valley 1.6.8 / Release，平台审核通过后公开；最后公开 GitHub Release。\n"
+            f"标记 Stardew Valley {' / '.join(curseforge.GAME_VERSIONS)} / Release，平台审核通过后公开；最后公开 GitHub Release。\n"
             "- 请审阅下面的原文和 release-candidate 附件，再由 shy-ci 批准 production-release。\n\n"
             "### 待发布更新日志\n\n" + snapshot["notes"])
 
@@ -249,7 +249,7 @@ def connection(args):
     summary("## 只读连接检查通过\n\n"
             f"- Nexus 账户：aaaa2521（237909389）\n- 目标：{NEXUS_PAGE}\n"
             f"- 当前正式版本：{previous['version']}\n- 主文件链：`{file_id}`\n"
-            f"- CurseForge 上传 API 只读连通；Stardew Valley {curseforge.GAME_VERSION} ID：{cf_target['game_version_id']}\n"
+            f"- CurseForge 上传 API 只读连通；Stardew Valley {' / '.join(curseforge.GAME_VERSIONS)} IDs：{cf_target['game_version_ids']}\n"
             f"- CurseForge 目标（已在作者后台核验）：{curseforge.PROJECT_ID}\n"
             "- 本次未上传文件，未验证上传写权限或新文件的审核状态；没有追加日志或公开 GitHub Release。")
 
@@ -262,7 +262,7 @@ def check(args):
     save_json(args.directory / "curseforge-target.json", cf_target)
     output({**target, "version": snapshot["version"], "filename": snapshot["filename"]})
     summary(f"确认后复核通过：将 Nexus {target['previous_version']} 更新为 {snapshot['version']}；"
-            f"同一安装包提交 CurseForge {curseforge.PROJECT_ID}，游戏版本 {curseforge.GAME_VERSION}。")
+            f"同一安装包提交 CurseForge {curseforge.PROJECT_ID}，游戏版本 {' / '.join(curseforge.GAME_VERSIONS)}。")
 
 
 def normalized_lines(text):

@@ -229,7 +229,8 @@ class ReleaseTests(unittest.TestCase):
             def submit(*args):
                 order.append("curseforge")
                 return {"status": "submitted", "project_id": 1755780, "sha256": snapshot["sha256"],
-                        "notes_sha256": snapshot["notes_sha256"], "version": "0.1.17", "file_id": 123}
+                        "notes_sha256": snapshot["notes_sha256"], "version": "0.1.17", "file_id": 123,
+                        "game_versions": ["1.6.8", "1.6.15"]}
             with patch.object(release, "load_candidate", return_value=snapshot), \
                  patch.object(release, "verify_nexus", side_effect=lambda *args: order.append("verify")), \
                  patch.object(release.curseforge, "submit", side_effect=submit), \
@@ -257,7 +258,7 @@ class ReleaseTests(unittest.TestCase):
                 return {"version": "0.1.16"}
             return self.nexus(path, legacy)
         with patch.object(release, "nexus", side_effect=response), patch.object(release, "github") as github, \
-             patch.object(release.curseforge, "preflight", return_value={"game_version_id": 1234}):
+             patch.object(release.curseforge, "preflight", return_value={"game_version_ids": [1234, 1236]}):
             release.connection(None)
             github.assert_not_called()
         with patch.object(release, "nexus", return_value={"user_id": 1}), self.assertRaisesRegex(ValueError, "既有 Nexus 发布账户"):

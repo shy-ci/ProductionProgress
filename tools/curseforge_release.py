@@ -8,7 +8,7 @@ import uuid
 API = "https://www.curseforge.com/api"
 PROJECT_ID = 1755780
 PAGE = "https://www.curseforge.com/stardewvalley/mods/production-progress-crops-and-machines"
-GAME_VERSION = "1.6.8"
+GAME_VERSIONS = ("1.6.8", "1.6.15")
 
 
 class UploadError(ValueError):
@@ -45,21 +45,28 @@ def preflight():
     versions = request("/game/stardewvalley/versions")
     if not isinstance(versions, list):
         raise UploadError("CurseForge 游戏版本列表格式与上传接口契约不符。")
-    matches = [v for v in versions if v.get("name") == GAME_VERSION]
-    if len(matches) != 1 or type(matches[0].get("id")) is not int or matches[0]["id"] <= 0:
-        raise UploadError("CurseForge 未返回唯一的 Stardew Valley 1.6.8 版本 ID。")
-    return {"project_id": PROJECT_ID, "page": PAGE, "game_version": GAME_VERSION,
-            "game_version_id": matches[0]["id"]}
+    ids = []
+    for version in GAME_VERSIONS:
+        matches = [v for v in versions if isinstance(v, dict) and v.get("name") == version]
+        if len(matches) != 1 or type(matches[0].get("id")) is not int or matches[0]["id"] <= 0:
+            raise UploadError(f"CurseForge 未返回唯一的 Stardew Valley {version} 版本 ID。")
+        ids.append(matches[0]["id"])
+    if len(set(ids)) != len(ids):
+        raise UploadError("CurseForge 为不同游戏版本返回了相同 ID。")
+    return {"project_id": PROJECT_ID, "page": PAGE, "game_versions": list(GAME_VERSIONS),
+            "game_version_ids": ids}
 
 
 def metadata(snapshot, target):
+    ids = target.get("game_version_ids")
     if (target.get("project_id") != PROJECT_ID or target.get("page") != PAGE or
-            target.get("game_version") != GAME_VERSION or type(target.get("game_version_id")) is not int or
-            target["game_version_id"] <= 0):
+            target.get("game_versions") != list(GAME_VERSIONS) or not isinstance(ids, list) or
+            len(ids) != len(GAME_VERSIONS) or any(type(i) is not int or i <= 0 for i in ids) or
+            len(set(ids)) != len(ids)):
         raise UploadError("CurseForge 目标项目或游戏版本与预检不一致。")
     return {"displayName": f"Production Progress {snapshot['version']}",
             "changelog": snapshot["notes"], "changelogType": "text",
-            "gameVersions": [target["game_version_id"]], "releaseType": "release",
+            "gameVersions": ids, "releaseType": "release",
             "isMarkedForManualRelease": False}
 
 
@@ -90,7 +97,7 @@ def submit(directory, snapshot, validate_package):
         raise UploadError("本次 CurseForge 已有提交记录；先核对服务端结果，不重复上传。")
     receipt = {"project_id": PROJECT_ID, "version": snapshot["version"], "filename": filename,
                "sha256": snapshot["sha256"], "notes_sha256": snapshot["notes_sha256"],
-               "game_version": GAME_VERSION, "release_type": "release", "page": PAGE,
+               "game_versions": list(GAME_VERSIONS), "release_type": "release", "page": PAGE,
                "status": "request-started", "publication_status": "not-verified"}
     def save():
         receipt_path.write_text(json.dumps(receipt, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -111,6 +118,7 @@ def submit(directory, snapshot, validate_package):
 
 def verify_receipt(receipt, snapshot):
     if (receipt.get("status") != "submitted" or receipt.get("project_id") != PROJECT_ID or
+            receipt.get("game_versions") != list(GAME_VERSIONS) or
             receipt.get("sha256") != snapshot["sha256"] or receipt.get("notes_sha256") != snapshot["notes_sha256"] or
             receipt.get("version") != snapshot["version"] or type(receipt.get("file_id")) is not int or
             receipt["file_id"] <= 0):
